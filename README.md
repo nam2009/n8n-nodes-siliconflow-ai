@@ -1,0 +1,185 @@
+# n8n-nodes-siliconflow-ai
+
+一个面向 [n8n](https://n8n.io) 的社区节点，封装 [SiliconFlow（硅基流动）](https://siliconflow.cn) 的 OpenAI 兼容 REST API：**Chat Completion**、**Embedding**、**Image Generation**、**Rerank**。
+
+> 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因 `langchain` 与 `@langchain/core` 版本冲突（`ERESOLVE`）导致的安装失败问题。
+>
+> 本节点**零运行时三方依赖**（除 `n8n-workflow` 作为 peer dep），完全使用 n8n 内置 HTTP helper 直连 SiliconFlow，永不与宿主 n8n 冲突。
+
+---
+
+## 📦 安装
+
+### 方式 1：通过 n8n UI 安装（推荐）
+
+需要 n8n >= 1.0。
+
+1. 启动 n8n
+2. 打开 **Settings → Community Nodes**
+3. 点击 **Install**
+4. 输入包名：`n8n-nodes-siliconflow-ai`
+5. 同意风险提示 → Install
+
+### 方式 2：本地加载（无需发布到 npm）
+
+启动 n8n 前设置环境变量：
+
+```bash
+# Linux / macOS / Git Bash
+export N8N_CUSTOM_EXTENSIONS="/d/GITHUB/n8n-nodes-siliconflow-ai"
+
+# Windows CMD
+set N8N_CUSTOM_EXTENSIONS=D:\GITHUB\n8n-nodes-siliconflow-ai
+
+# Windows PowerShell
+$env:N8N_CUSTOM_EXTENSIONS="D:\GITHUB\n8n-nodes-siliconflow-ai"
+```
+
+或者把 `dist/` + `package.json` 复制到 `~/.n8n/custom/n8n-nodes-siliconflow-ai/`。
+
+### 方式 3：Docker 自定义镜像
+
+```dockerfile
+FROM n8nio/n8n:latest
+USER root
+RUN mkdir -p /home/node/.n8n/custom/n8n-nodes-siliconflow-ai
+COPY --chown=node:node dist /home/node/.n8n/custom/n8n-nodes-siliconflow-ai/dist
+COPY --chown=node:node package.json /home/node/.n8n/custom/n8n-nodes-siliconflow-ai/
+USER node
+```
+
+---
+
+## 🔑 凭证配置
+
+1. 登录 [SiliconFlow 控制台](https://cloud.siliconflow.cn/account/ak) 创建 API Key（新用户注册送 2000 万 token 免费额度）
+2. n8n → **Credentials → New → SiliconFlow API**
+3. 填写：
+   - **API Key**：你的密钥
+   - **Base URL**：默认 `https://api.siliconflow.cn/v1`（一般无需修改）
+4. 点击 **Test connection**，会请求 `/v1/models` 验证
+
+---
+
+## ✨ 支持的能力
+
+| Resource | Operation | 端点 | 说明 |
+|---|---|---|---|
+| Chat Completion | Send Message | `POST /chat/completions` | 兼容 OpenAI 格式的对话 |
+| Embedding | Create Embeddings | `POST /embeddings` | 文本向量化 |
+| Image Generation | Generate | `POST /images/generations` | 文生图 |
+| Rerank | Rerank Documents | `POST /rerank` | 文档重排序（RAG 后处理） |
+
+---
+
+## 🚀 典型用法
+
+### 1. 简易聊天工作流
+
+```
+[Manual Trigger] → [SiliconFlow (Chat)] → [Set] → [Respond to Webhook]
+```
+
+**SiliconFlow 节点配置：**
+- Resource: `Chat Completion`
+- Model: `Qwen/Qwen2.5-7B-Instruct`
+- Messages: `=[{"role":"system","content":"你是一个翻译助手"},{"role":"user","content":"{{$json.text}}"}]`
+- Additional Options → Temperature: `0.5`，Max Tokens: `1024`
+
+**Set 节点**：把 `choices[0].message.content` 提取到 `output` 字段。
+
+### 2. 批量 Embedding
+
+把上游节点的 `texts` 字段传入：
+
+- Resource: `Embedding`
+- Model: `BAAI/bge-m3`
+- Input: `={{$json.texts}}`（值为字符串数组）
+- Additional Options → Encoding Format: `Float`
+
+下游节点用 `data[0].embedding` 取第一条向量。
+
+### 3. RAG 中的 Rerank 流程
+
+```
+[Vector Store] → [SiliconFlow (Rerank)] → [Top-K 送入 LLM]
+```
+
+- Resource: `Rerank`
+- Model: `BAAI/bge-reranker-v2-m3`
+- Query: `{{$json.question}}`
+- Documents: `={{$json.docs}}`（如 `["doc1","doc2",...]` 或 `[{"text":"doc1"}]`）
+- Top N: `3`
+
+输出 `results` 数组中每项含 `index`、`relevance_score` 和 `document`（开启 Return Documents 时）。
+
+### 4. 文生图
+
+- Resource: `Image Generation`
+- Model: `stabilityai/stable-diffusion-2-1`
+- Prompt: `a cute cat astronaut, cinematic lighting`
+- Image Size: `1024x1024`，Batch Size: `1`
+
+输出 `images[0].url` 即图片 URL（部分模型返回 base64）。
+
+---
+
+## 🧪 常见模型参考
+
+| 用途 | 模型示例 |
+|---|---|
+| 对话 | `Qwen/Qwen2.5-7B-Instruct`、`deepseek-ai/DeepSeek-V3`、`THUDM/glm-4-9b-chat` |
+| Embedding | `BAAI/bge-m3`、`Pro/BAAI/bge-m3` |
+| 图像 | `stabilityai/stable-diffusion-2-1`、`black-forest-labs/FLUX.1-schnell` |
+| Rerank | `BAAI/bge-reranker-v2-m3` |
+
+完整列表见 [SiliconFlow 模型广场](https://siliconflow.cn/models)。
+
+---
+
+## 🆚 与原 n8n-nodes-siliconflow 的区别
+
+| 项 | 原项目 | 本项目 |
+|---|---|---|
+| 运行时依赖 | `langchain` + `@langchain/core` + `axios` + `zod` | **零**（只用 n8n 内置 helper） |
+| 最新 n8n 安装 | ❌ `ERESOLVE` 报错 | ✅ 干净通过 |
+| 包大小 | ~50MB+ | < 50KB |
+| 维护难度 | 跟随 langchain 升级 | 跟随 SiliconFlow API 变更即可 |
+
+---
+
+## 🛠 开发
+
+```bash
+# 克隆
+git clone https://github.com/nam2009/n8n-nodes-siliconflow-ai.git
+cd n8n-nodes-siliconflow-ai
+
+# 安装开发依赖
+npm install
+
+# 编译
+npm run build
+
+# 监听模式（自动编译）
+npm run dev
+```
+
+修改源码后建议在本地 n8n 验证（见上文「方式 2：本地加载」）。
+
+---
+
+## 📚 参考文档
+
+- [SiliconFlow API 总览](https://docs.siliconflow.cn/cn/api-reference/authentication)
+- [SiliconFlow Chat Completions](https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions)
+- [SiliconFlow Embeddings](https://docs.siliconflow.cn/cn/api-reference/embeddings/embeddings)
+- [SiliconFlow Images](https://docs.siliconflow.cn/cn/api-reference/images/images)
+- [SiliconFlow Rerank](https://docs.siliconflow.cn/cn/api-reference/rerank/rerank)
+- [n8n 社区节点开发指南](https://docs.n8n.io/integrations/community-nodes/building-community-nodes/)
+
+---
+
+## 📄 License
+
+MIT
