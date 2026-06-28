@@ -1,0 +1,63 @@
+{
+  "name": "n8n-nodes-siliconflow-ai",
+  "version": "0.1.0",
+  "description": "n8n community node for SiliconFlow AI (SiliconFlow / 硅基流动). Zero-dependency, direct REST API client. Supports Chat Completion, Embedding, Image Generation and Rerank.",
+  "keywords": [
+    "n8n",
+    "n8n-community-node-package",
+    "siliconflow",
+    "silicon-flow",
+    "硅基流动",
+    "ai",
+    "llm",
+    "embedding",
+    "image-generation",
+    "rerank"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "nam2009",
+    "email": "nam2009@users.noreply.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nam2009/n8n-nodes-siliconflow-ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nam2009/n8n-nodes-siliconflow-ai/issues"
+  },
+  "homepage": "https://github.com/nam2009/n8n-nodes-siliconflow-ai#readme",
+  "main": "index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && node scripts/copy-assets.js",
+    "build:watch": "tsc --watch",
+    "lint": "eslint nodes credentials --ext .ts",
+    "lint:fix": "eslint nodes credentials --ext .ts --fix",
+    "format": "prettier --write \"nodes/**/*.ts\" \"credentials/**/*.ts\"",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "n8n-workflow": "^1.0.0",
+    "typescript": "^5.4.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "^1.0.0"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/SiliconFlowApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/SiliconFlow/SiliconFlow.node.js"
+    ]
+  }
+}
