@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-siliconflow-ai",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "n8n community node for SiliconFlow AI (SiliconFlow / 硅基流动). Zero-dependency, direct REST API client. Supports Chat Completion, Embedding, Image Generation and Rerank.",
   "keywords": [
     "n8n",

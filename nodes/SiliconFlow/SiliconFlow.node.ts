@@ -11,19 +11,17 @@ import {
 import type { IHttpRequestOptions, JsonObject } from 'n8n-workflow';
 
 /**
- * SiliconFlow（硅基流动）AI 节点 v0.1.0
+ * SiliconFlow（硅基流动）AI 节点 v0.2.0
  *
  * 本节点使用 n8n 内置的 helpers.httpRequestWithAuthentication 直接调用 SiliconFlow
  * 的 OpenAI 兼容 REST API，不引入任何 langchain 或 axios 等三方依赖，从而彻底规避
  * 宿主 n8n 环境的 peer dependency 冲突。
  *
- * 当前版本（v0.1.0）支持：
+ * 支持的能力：
  *   - Chat Completion  （POST /chat/completions）
  *   - Embedding        （POST /embeddings）
- *
- * 后续版本计划新增：
- *   - Image Generation（POST /images/generations）
- *   - Rerank          （POST /rerank）
+ *   - Image Generation （POST /images/generations）
+ *   - Rerank           （POST /rerank）
  */
 export class SiliconFlow implements INodeType {
 	description: INodeTypeDescription = {
@@ -70,6 +68,16 @@ export class SiliconFlow implements INodeType {
 						name: 'Embedding',
 						value: 'embedding',
 						description: '将文本转换为向量',
+					},
+					{
+						name: 'Image Generation',
+						value: 'image',
+						description: '文生图',
+					},
+					{
+						name: 'Rerank',
+						value: 'rerank',
+						description: '文档重排序（用于 RAG 检索后处理）',
 					},
 				],
 				default: 'chat',
@@ -248,6 +256,229 @@ export class SiliconFlow implements INodeType {
 					},
 				],
 			},
+
+			// ============================================================
+			// Image Generation 相关字段
+			// ============================================================
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: {
+						resource: ['image'],
+					},
+				},
+				options: [
+					{
+						name: 'Generate',
+						value: 'generate',
+						action: 'Generate an image from a prompt',
+					},
+				],
+				default: 'generate',
+			},
+			{
+				displayName: 'Model',
+				name: 'model',
+				type: 'string',
+				default: 'stabilityai/stable-diffusion-2-1',
+				required: true,
+				description:
+					'图像模型 ID，例如 stabilityai/stable-diffusion-2-1、black-forest-labs/FLUX.1-schnell',
+				displayOptions: {
+					show: {
+						resource: ['image'],
+					},
+				},
+			},
+			{
+				displayName: 'Prompt',
+				name: 'prompt',
+				type: 'string',
+				typeOptions: {
+					rows: 3,
+				},
+				default: '',
+				required: true,
+				description: '用于生成图像的文本提示词',
+				displayOptions: {
+					show: {
+						resource: ['image'],
+					},
+				},
+			},
+			{
+				displayName: 'Additional Options',
+				name: 'additionalOptions',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['image'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Negative Prompt',
+						name: 'negative_prompt',
+						type: 'string',
+						typeOptions: { rows: 2 },
+						default: '',
+						description: '不希望出现的元素描述',
+					},
+					{
+						displayName: 'Image Size',
+						name: 'image_size',
+						type: 'options',
+						default: '1024x1024',
+						options: [
+							{ name: '512x512', value: '512x512' },
+							{ name: '768x768', value: '768x768' },
+							{ name: '1024x1024', value: '1024x1024' },
+							{ name: '1024x576 (16:9)', value: '1024x576' },
+							{ name: '576x1024 (9:16)', value: '576x1024' },
+						],
+					},
+					{
+						displayName: 'Num Images',
+						name: 'batch_size',
+						type: 'number',
+						default: 1,
+						typeOptions: { minValue: 1, maxValue: 4 },
+					},
+					{
+						displayName: 'Seed',
+						name: 'seed',
+						type: 'number',
+						default: 0,
+						description: '随机种子；0 表示随机',
+					},
+					{
+						displayName: 'Guidance Scale',
+						name: 'guidance_scale',
+						type: 'number',
+						default: 7.5,
+						typeOptions: { minValue: 1, maxValue: 20 },
+					},
+					{
+						displayName: 'Num Inference Steps',
+						name: 'num_inference_steps',
+						type: 'number',
+						default: 20,
+						typeOptions: { minValue: 1, maxValue: 100 },
+					},
+				],
+			},
+
+			// ============================================================
+			// Rerank 相关字段
+			// ============================================================
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: {
+						resource: ['rerank'],
+					},
+				},
+				options: [
+					{
+						name: 'Rerank Documents',
+						value: 'rerank',
+						action: 'Rerank documents against a query',
+					},
+				],
+				default: 'rerank',
+			},
+			{
+				displayName: 'Model',
+				name: 'model',
+				type: 'string',
+				default: 'BAAI/bge-reranker-v2-m3',
+				required: true,
+				description: 'Rerank 模型 ID，例如 BAAI/bge-reranker-v2-m3',
+				displayOptions: {
+					show: {
+						resource: ['rerank'],
+					},
+				},
+			},
+			{
+				displayName: 'Query',
+				name: 'query',
+				type: 'string',
+				typeOptions: {
+					rows: 2,
+				},
+				default: '',
+				required: true,
+				description: '用户查询',
+				displayOptions: {
+					show: {
+						resource: ['rerank'],
+					},
+				},
+			},
+			{
+				displayName: 'Documents',
+				name: 'documents',
+				type: 'json',
+				default: '=[{"text":"示例文档 1"},{"text":"示例文档 2"}]',
+				required: true,
+				description:
+					'文档数组。可以是字符串数组 ["doc1","doc2"] 或对象数组 [{"text":"doc1"}]。支持 JSON 表达式，可引用上游数据。',
+				displayOptions: {
+					show: {
+						resource: ['rerank'],
+					},
+				},
+			},
+			{
+				displayName: 'Additional Options',
+				name: 'additionalOptions',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['rerank'],
+					},
+				},
+				options: [
+					{
+						displayName: 'Top N',
+						name: 'top_n',
+						type: 'number',
+						default: 5,
+						description: '返回前 N 个最相关文档',
+					},
+					{
+						displayName: 'Return Documents',
+						name: 'return_documents',
+						type: 'boolean',
+						default: true,
+						description: '是否在响应中包含原始文档内容',
+					},
+					{
+						displayName: 'Max Chunks Per Doc',
+						name: 'max_chunks_per_doc',
+						type: 'number',
+						default: 0,
+						description: '每个文档的最大切分数（0 表示不切分）',
+					},
+					{
+						displayName: 'Overlap Tokens',
+						name: 'overlap_tokens',
+						type: 'number',
+						default: 80,
+					},
+				],
+			},
 		],
 	};
 
@@ -265,6 +496,10 @@ export class SiliconFlow implements INodeType {
 					responseData = await handleChat(this, i);
 				} else if (resource === 'embedding') {
 					responseData = await handleEmbedding(this, i);
+				} else if (resource === 'image') {
+					responseData = await handleImage(this, i);
+				} else if (resource === 'rerank') {
+					responseData = await handleRerank(this, i);
 				} else {
 					throw new NodeOperationError(this.getNode(), `未知的 Resource: ${resource}`, {
 						itemIndex: i,
@@ -382,6 +617,120 @@ async function handleEmbedding(ctx: IExecuteFunctions, itemIndex: number): Promi
 	const requestOptions: IHttpRequestOptions = {
 		method: 'POST',
 		url: '/embeddings',
+		body,
+		json: true,
+	};
+
+	return (await ctx.helpers.httpRequestWithAuthentication.call(
+		ctx,
+		'siliconFlowApi',
+		requestOptions,
+	)) as IDataObject;
+}
+
+/**
+ * Image Generation 处理函数
+ */
+async function handleImage(ctx: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
+	const model = ctx.getNodeParameter('model', itemIndex) as string;
+	const prompt = ctx.getNodeParameter('prompt', itemIndex) as string;
+	const additionalOptions = ctx.getNodeParameter(
+		'additionalOptions',
+		itemIndex,
+		{},
+	) as IDataObject;
+
+	const body: IDataObject = {
+		model,
+		prompt,
+		image_size: additionalOptions.image_size ?? '1024x1024',
+		batch_size: additionalOptions.batch_size ?? 1,
+	};
+
+	if (additionalOptions.negative_prompt) {
+		body.negative_prompt = additionalOptions.negative_prompt;
+	}
+	if (typeof additionalOptions.seed === 'number' && additionalOptions.seed !== 0) {
+		body.seed = additionalOptions.seed;
+	}
+	if (typeof additionalOptions.guidance_scale === 'number') {
+		body.guidance_scale = additionalOptions.guidance_scale;
+	}
+	if (typeof additionalOptions.num_inference_steps === 'number') {
+		body.num_inference_steps = additionalOptions.num_inference_steps;
+	}
+
+	const requestOptions: IHttpRequestOptions = {
+		method: 'POST',
+		url: '/images/generations',
+		body,
+		json: true,
+	};
+
+	return (await ctx.helpers.httpRequestWithAuthentication.call(
+		ctx,
+		'siliconFlowApi',
+		requestOptions,
+	)) as IDataObject;
+}
+
+/**
+ * Rerank 处理函数
+ */
+async function handleRerank(ctx: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
+	const model = ctx.getNodeParameter('model', itemIndex) as string;
+	const query = ctx.getNodeParameter('query', itemIndex) as string;
+	const documentsRaw = ctx.getNodeParameter('documents', itemIndex) as unknown;
+	const additionalOptions = ctx.getNodeParameter(
+		'additionalOptions',
+		itemIndex,
+		{},
+	) as IDataObject;
+
+	// documents: 接受字符串数组或 {text:string} 数组
+	let documents: Array<string | IDataObject>;
+	if (typeof documentsRaw === 'string') {
+		const trimmed = documentsRaw.trim();
+		try {
+			const parsed = JSON.parse(trimmed);
+			if (Array.isArray(parsed)) {
+				documents = parsed as Array<string | IDataObject>;
+			} else {
+				throw new NodeOperationError(ctx.getNode(), 'Documents 字段必须为 JSON 数组', {
+					itemIndex,
+				});
+			}
+		} catch (err) {
+			throw new NodeOperationError(
+				ctx.getNode(),
+				`Documents 字段不是合法的 JSON: ${(err as Error).message}`,
+				{ itemIndex },
+			);
+		}
+	} else if (Array.isArray(documentsRaw)) {
+		documents = documentsRaw as Array<string | IDataObject>;
+	} else {
+		throw new NodeOperationError(ctx.getNode(), 'Documents 字段类型不支持', { itemIndex });
+	}
+
+	const body: IDataObject = {
+		model,
+		query,
+		documents,
+		top_n: additionalOptions.top_n ?? 5,
+		return_documents: additionalOptions.return_documents ?? true,
+	};
+
+	if (typeof additionalOptions.max_chunks_per_doc === 'number') {
+		body.max_chunks_per_doc = additionalOptions.max_chunks_per_doc;
+	}
+	if (typeof additionalOptions.overlap_tokens === 'number') {
+		body.overlap_tokens = additionalOptions.overlap_tokens;
+	}
+
+	const requestOptions: IHttpRequestOptions = {
+		method: 'POST',
+		url: '/rerank',
 		body,
 		json: true,
 	};
