@@ -4,10 +4,10 @@
 
 一个面向 [n8n](https://n8n.io) 的社区节点，封装 [SiliconFlow（硅基流动）](https://siliconflow.cn) 的 OpenAI 兼容 REST API。提供**两个节点**：
 
-- **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank
+- **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank / Audio（TTS 文生语音 + ASR 语音转写）
 - **SiliconFlow Chat Model**（AI Agent 模型节点）：LangChain 兼容，可接入 n8n 的 AI Agent / Tools Agent / AI Chain
 
-> 📌 当前版本 **0.4.3** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
+> 📌 当前版本 **0.5.0** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
 
 > 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因把 `langchain@^0.3.29` 写进 `dependencies` 而与宿主 n8n 自带的 `@langchain/core@1.x` 产生 `ERESOLVE` 冲突、导致安装失败的问题。
 >
@@ -81,6 +81,8 @@ USER node
 | Embeddings | Create | `POST /embeddings` | 文本向量化 |
 | Image | Generate | `POST /images/generations` | 文生图 |
 | Rerank | Create | `POST /rerank` | 文档重排序（RAG 后处理） |
+| Audio | Generate Speech | `POST /audio/speech` | 文生语音（TTS），输出二进制音频（mp3/wav/opus/pcm） |
+| Audio | Transcribe | `POST /audio/transcriptions` | 语音转写（ASR），上传音频返回文本 |
 
 ### 节点 2：SiliconFlow Chat Model（AI Agent 模型节点）
 
@@ -90,7 +92,7 @@ USER node
 
 ## 🧩 模型选择：From List / By ID
 
-每个资源（Chat / Vision / Embeddings / Image / Rerank）以及 Chat Model 节点的模型选择都支持两种模式（顶部 **Model Selection** 切换）：
+每个资源（Chat / Vision / Embeddings / Image / Rerank / Audio）以及 Chat Model 节点的模型选择都支持两种模式（顶部 **Model Selection** 切换）：
 
 | 模式 | 说明 |
 |---|---|
@@ -106,6 +108,8 @@ USER node
 - **Embedding（8）**：Qwen3-Embedding 系列、bge-m3(+Pro)、bge-large-zh/en 等
 - **Image（7）**：Z-Image(+Turbo)、ERNIE-Image-Turbo、Qwen-Image(+Edit)、Kolors 等
 - **Rerank（6）**：Qwen3-Reranker 系列、bge-reranker-v2-m3(+Pro) 等
+- **Audio TTS（2）**：CosyVoice2-0.5B、MOSS-TTSD-v0.5（文生语音）
+- **Audio ASR（2）**：SenseVoiceSmall、TeleSpeechASR（语音转写）
 
 清单源码位于 `nodes/shared/models.ts`，可直接增删维护。
 
@@ -173,6 +177,33 @@ USER node
 - 在 Chat Model 节点选择模型（如 `deepseek-ai/DeepSeek-V3`、`Qwen/Qwen2.5-72B-Instruct`）
 - Agent 即可使用该模型进行工具调用 / 推理
 
+### 6. 文生语音（TTS）
+
+```
+[Manual Trigger] → [SiliconFlow (Audio: Generate Speech)] → [Write File]
+```
+
+- Resource: `Audio`，Operation: `Generate Speech`
+- Model: `FunAudioLLM/CosyVoice2-0.5B`（或 `fnlp/MOSS-TTSD-v0.5`）
+- Text: 要合成的文本（MOSS-TTSD 可用 `[S1]`/`[S2]` 标记多人对话；CosyVoice2 支持 `[laughter]`、`[breath]` 等标记）
+- Voice: `FunAudioLLM/CosyVoice2-0.5B:alex`（格式 `{model}:{voice}`，留空用默认音色）
+- Additional Fields → Output Format: `mp3`，Speed: `1`，Sample Rate: `32000`
+
+合成结果以**二进制属性 `data`** 输出，可直接用 **Write File** / **Read/Write Files from Disk** 节点写入 `.mp3`。JSON 部分含 `model`、`voice`、`format`、`size`、`input`。
+
+### 7. 语音转写（ASR）
+
+```
+[Read File (audio)] → [SiliconFlow (Audio: Transcribe)]
+```
+
+- Resource: `Audio`，Operation: `Transcribe`
+- Model: `FunAudioLLM/SenseVoiceSmall`（或 `TeleAI/TeleSpeechASR`）
+- Audio Source: `Binary Data`（取上游节点输出的音频）/ `URL` / `Base64`
+- Binary Property: `data`（限制：单文件 ≤ 50MB、时长 ≤ 1 小时）
+
+输出 `text` 字段为转写文本。
+
 ---
 
 ## 🧪 常见模型参考
@@ -183,6 +214,8 @@ USER node
 | Embedding | `BAAI/bge-m3`、`Pro/BAAI/bge-m3` |
 | 图像 | `stabilityai/stable-diffusion-2-1`、`black-forest-labs/FLUX.1-schnell` |
 | Rerank | `BAAI/bge-reranker-v2-m3` |
+| 语音合成（TTS） | `FunAudioLLM/CosyVoice2-0.5B`、`fnlp/MOSS-TTSD-v0.5` |
+| 语音转写（ASR） | `FunAudioLLM/SenseVoiceSmall`、`TeleAI/TeleSpeechASR` |
 
 完整列表见 [SiliconFlow 模型广场](https://siliconflow.cn/models)。
 
@@ -229,6 +262,8 @@ npm run build:watch
 - [SiliconFlow Embeddings](https://docs.siliconflow.cn/cn/api-reference/embeddings/embeddings)
 - [SiliconFlow Images](https://docs.siliconflow.cn/cn/api-reference/images/images)
 - [SiliconFlow Rerank](https://docs.siliconflow.cn/cn/api-reference/rerank/rerank)
+- [SiliconFlow 语音合成 TTS](https://api-docs.siliconflow.cn/docs/api/audio-speech-post)
+- [SiliconFlow 语音转写 ASR](https://api-docs.siliconflow.cn/docs/api/audio-transcriptions-post)
 - [n8n 社区节点开发指南](https://docs.n8n.io/integrations/community-nodes/building-community-nodes/)
 
 ---
@@ -237,6 +272,7 @@ npm run build:watch
 
 详见 [CHANGELOG.md](./CHANGELOG.md)。简要回顾：
 
+- **0.5.0** — 新增 Audio 资源：Generate Speech（TTS 文生语音）+ Transcribe（ASR 语音转写）
 - **0.4.2** — 修复 Vision 节点在 filesystem 二进制模式下用 Binary Data 分析图片报错
 - **0.4.1** — 修复 SiliconFlow 动作节点运行报 `Invalid URL`
 - **0.4.0** — 新增 From List / By ID 模型选择；全面更新模型清单

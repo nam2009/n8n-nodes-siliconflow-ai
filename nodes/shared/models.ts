@@ -96,6 +96,24 @@ export const RERANK_MODEL_IDS: string[] = [
 	'Pro/BAAI/bge-reranker-v2-m3',
 ];
 
+// ----------------------------------------------------------------
+// TTS（语音合成 / 文生语音）模型 —— SiliconFlow 节点 Audio > Generate Speech
+// 端点：POST /audio/speech，请求体为 JSON，响应为二进制音频流。
+// ----------------------------------------------------------------
+export const TTS_MODEL_IDS: string[] = [
+	'FunAudioLLM/CosyVoice2-0.5B',
+	'fnlp/MOSS-TTSD-v0.5',
+];
+
+// ----------------------------------------------------------------
+// ASR（语音识别 / 语音转写）模型 —— SiliconFlow 节点 Audio > Transcribe
+// 端点：POST /audio/transcriptions，multipart/form-data 上传音频，响应为 JSON。
+// ----------------------------------------------------------------
+export const ASR_MODEL_IDS: string[] = [
+	'FunAudioLLM/SenseVoiceSmall',
+	'TeleAI/TeleSpeechASR',
+];
+
 /** 把 ID 数组转成 n8n options（显示名 = ID，值 = ID，所见即所发）。 */
 function toOptions(ids: string[]) {
 	return ids.map((id) => ({ name: id, value: id }));

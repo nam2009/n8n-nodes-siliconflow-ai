@@ -1,4 +1,5 @@
 import {
+	IBinaryData,
 	IDataObject,
 	IExecuteFunctions,
 	IHttpRequestOptions,
@@ -7,13 +8,16 @@ import {
 	INodeTypeDescription,
 	NodeOperationError,
 } from 'n8n-workflow';
+import FormData from 'form-data';
 import {
 	buildModelSelectionFields,
+	ASR_MODEL_IDS,
 	CHAT_MODEL_IDS,
 	EMBEDDING_MODEL_IDS,
 	IMAGE_MODEL_IDS,
 	resolveModelId,
 	RERANK_MODEL_IDS,
+	TTS_MODEL_IDS,
 	VISION_MODEL_IDS,
 } from '../shared/models';
 
@@ -30,6 +34,7 @@ import {
  *   - Embeddings       （POST /embeddings）
  *   - Image Generation （POST /images/generations）
  *   - Rerank           （POST /rerank）
+ *   - Audio            （POST /audio/speech 文生语音 · POST /audio/transcriptions 语音转写）
  */
 export class SiliconFlow implements INodeType {
 	description: INodeTypeDescription = {
@@ -39,7 +44,7 @@ export class SiliconFlow implements INodeType {
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-		description: 'Interact with SiliconFlow AI models (Chat / Vision / Embeddings / Image / Rerank)',
+		description: 'Interact with SiliconFlow AI models (Chat / Vision / Embeddings / Image / Rerank / Audio)',
 		defaults: {
 			name: 'SiliconFlow',
 		},
@@ -74,6 +79,7 @@ export class SiliconFlow implements INodeType {
 					{ name: 'Embeddings', value: 'embeddings' },
 					{ name: 'Image', value: 'image' },
 					{ name: 'Rerank', value: 'rerank' },
+					{ name: 'Audio', value: 'audio' },
 				],
 				default: 'chat',
 			},
@@ -672,6 +678,173 @@ export class SiliconFlow implements INodeType {
 					},
 				],
 			},
+
+			// ---------------- Audio ----------------
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: { show: { resource: ['audio'] } },
+				options: [
+					{
+						name: 'Generate Speech',
+						value: 'generate',
+						description: 'Synthesize speech from text (Text-to-Speech)',
+						action: 'Generate speech from text',
+					},
+					{
+						name: 'Transcribe',
+						value: 'transcribe',
+						description: 'Transcribe audio into text (Speech-to-Text)',
+						action: 'Transcribe audio to text',
+					},
+				],
+				default: 'generate',
+			},
+
+			// ---- Audio > Generate Speech (TTS, POST /audio/speech) ----
+			...buildModelSelectionFields({
+				modeName: 'ttsModelMode',
+				listName: 'ttsModel',
+				idName: 'ttsModelId',
+				ids: TTS_MODEL_IDS,
+				show: { resource: ['audio'], operation: ['generate'] },
+				defaultList: 'FunAudioLLM/CosyVoice2-0.5B',
+			}),
+			{
+				displayName: 'Text',
+				name: 'ttsInput',
+				type: 'string',
+				displayOptions: { show: { resource: ['audio'], operation: ['generate'] } },
+				default: '',
+				required: true,
+				description:
+					'Text to synthesize. For MOSS-TTSD use [S1]/[S2] speaker tags for bilingual dialogue; for CosyVoice2 you may use markers like [laughter] and [breath].',
+				typeOptions: { rows: 4 },
+			},
+			{
+				displayName: 'Voice',
+				name: 'ttsVoice',
+				type: 'string',
+				displayOptions: { show: { resource: ['audio'], operation: ['generate'] } },
+				default: '',
+				placeholder: 'e.g. FunAudioLLM/CosyVoice2-0.5B:alex',
+				description:
+					'Preset voice ID in the form {model}:{voice} (e.g. FunAudioLLM/CosyVoice2-0.5B:alex). Leave empty to use the model default. Mutually exclusive with reference audio cloning.',
+			},
+			{
+				displayName: 'Additional Fields',
+				name: 'ttsAdditionalFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: { show: { resource: ['audio'], operation: ['generate'] } },
+				options: [
+					{
+						displayName: 'Output Format',
+						name: 'response_format',
+						type: 'options',
+						options: [
+							{ name: 'MP3', value: 'mp3' },
+							{ name: 'WAV', value: 'wav' },
+							{ name: 'Opus', value: 'opus' },
+							{ name: 'PCM', value: 'pcm' },
+						],
+						default: 'mp3',
+						description: 'Audio format of the synthesized output',
+					},
+					{
+						displayName: 'Sample Rate',
+						name: 'sample_rate',
+						type: 'number',
+						default: 32000,
+						description:
+							'Output sample rate (Hz). mp3: 32000 or 44100; wav/pcm: 8000-44100; opus: 48000 only.',
+					},
+					{
+						displayName: 'Speed',
+						name: 'speed',
+						type: 'number',
+						default: 1,
+						typeOptions: { minValue: 0.25, maxValue: 4, numberPrecision: 2 },
+						description: 'Speech rate (0.25 - 4.0)',
+					},
+					{
+						displayName: 'Gain',
+						name: 'gain',
+						type: 'number',
+						default: 0,
+						typeOptions: { minValue: -10, maxValue: 10, numberPrecision: 1 },
+						description: 'Audio gain / volume adjustment (-10.0 - 10.0)',
+					},
+					{
+						displayName: 'Stream',
+						name: 'stream',
+						type: 'boolean',
+						default: false,
+						description: 'Whether the API should stream the audio back',
+					},
+				],
+			},
+
+			// ---- Audio > Transcribe (ASR, POST /audio/transcriptions) ----
+			...buildModelSelectionFields({
+				modeName: 'asrModelMode',
+				listName: 'asrModel',
+				idName: 'asrModelId',
+				ids: ASR_MODEL_IDS,
+				show: { resource: ['audio'], operation: ['transcribe'] },
+				defaultList: 'FunAudioLLM/SenseVoiceSmall',
+			}),
+			{
+				displayName: 'Audio Source',
+				name: 'asrAudioSource',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: { show: { resource: ['audio'], operation: ['transcribe'] } },
+				options: [
+					{ name: 'Binary Data', value: 'binary', description: 'Use audio binary data from a previous node' },
+					{ name: 'URL', value: 'url', description: 'Download audio from a URL' },
+					{ name: 'Base64', value: 'base64', description: 'Use base64 encoded audio' },
+				],
+				default: 'binary',
+			},
+			{
+				displayName: 'Binary Property',
+				name: 'asrBinaryProperty',
+				type: 'string',
+				displayOptions: { show: { resource: ['audio'], operation: ['transcribe'], asrAudioSource: ['binary'] } },
+				default: 'data',
+				description: 'Name of the binary property containing the audio file',
+			},
+			{
+				displayName: 'Audio URL',
+				name: 'asrAudioUrl',
+				type: 'string',
+				displayOptions: { show: { resource: ['audio'], operation: ['transcribe'], asrAudioSource: ['url'] } },
+				default: '',
+				placeholder: 'https://example.com/audio.mp3',
+			},
+			{
+				displayName: 'Base64 Data',
+				name: 'asrBase64Data',
+				type: 'string',
+				displayOptions: { show: { resource: ['audio'], operation: ['transcribe'], asrAudioSource: ['base64'] } },
+				default: '',
+				description: 'Base64 encoded audio data (with or without data:audio/...;base64, prefix)',
+				typeOptions: { rows: 4 },
+			},
+			{
+				displayName: 'File Name',
+				name: 'asrFileName',
+				type: 'string',
+				displayOptions: { show: { resource: ['audio'], operation: ['transcribe'] } },
+				default: '',
+				placeholder: 'audio.mp3',
+				description:
+					'File name passed to the API (used for format detection). Optional for binary source; recommended for URL/base64 sources.',
+			},
 		],
 	};
 
@@ -683,6 +856,7 @@ export class SiliconFlow implements INodeType {
 		for (let i = 0; i < items.length; i++) {
 			try {
 				let outputData: IDataObject;
+				let outputBinary: IBinaryData | undefined;
 
 				if (resource === 'chat') {
 					outputData = await handleChat.call(this, i);
@@ -694,11 +868,19 @@ export class SiliconFlow implements INodeType {
 					outputData = await handleImage.call(this, i);
 				} else if (resource === 'rerank') {
 					outputData = await handleRerank.call(this, i);
+				} else if (resource === 'audio') {
+					const audioResult = await handleAudio.call(this, i);
+					outputData = audioResult.json;
+					outputBinary = audioResult.binary;
 				} else {
 					throw new NodeOperationError(this.getNode(), `Unknown resource: ${resource}`);
 				}
 
-				returnData.push({ json: outputData, pairedItem: { item: i } });
+				const item: INodeExecutionData = { json: outputData, pairedItem: { item: i } };
+				if (outputBinary) {
+					item.binary = { data: outputBinary };
+				}
+				returnData.push(item);
 			} catch (error) {
 				if (this.continueOnFail()) {
 					returnData.push({
@@ -1064,4 +1246,305 @@ async function handleRerank(this: IExecuteFunctions, itemIndex: number): Promise
 		usage: (responseData as any).tokens,
 		_rawResponse: responseData,
 	} as IDataObject;
+}
+
+// ----------------------------------------------------------------
+// Audio (TTS / ASR)
+// ----------------------------------------------------------------
+interface AudioResult {
+	json: IDataObject;
+	binary?: IBinaryData;
+}
+
+async function handleAudio(this: IExecuteFunctions, itemIndex: number): Promise<AudioResult> {
+	const operation = this.getNodeParameter('operation', itemIndex, 'generate') as string;
+	if (operation === 'transcribe') {
+		return handleTranscribe.call(this, itemIndex);
+	}
+	return handleGenerateSpeech.call(this, itemIndex);
+}
+
+// ---- Audio > Generate Speech (TTS) ----
+// 请求体为 JSON，响应为二进制音频流；与 siliconflowRequest（JSON 来回）不同，
+// 这里需要：① 手动序列化请求体并设置 Content-Type: application/json；
+//           ② 以 arraybuffer 方式接收响应，再转成 Buffer 交给 prepareBinaryData。
+async function handleGenerateSpeech(this: IExecuteFunctions, itemIndex: number): Promise<AudioResult> {
+	const model = resolveModelId(this, itemIndex, 'ttsModelMode', 'ttsModel', 'ttsModelId');
+	const input = this.getNodeParameter('ttsInput', itemIndex) as string;
+	const voice = this.getNodeParameter('ttsVoice', itemIndex, '') as string;
+	const additionalFields = this.getNodeParameter('ttsAdditionalFields', itemIndex, {}) as IDataObject;
+
+	if (!input || !input.trim()) {
+		throw new NodeOperationError(this.getNode(), 'Text to synthesize is required');
+	}
+
+	const requestBody: IDataObject = { model, input };
+	if (voice && voice.trim()) {
+		requestBody.voice = voice.trim();
+	}
+
+	const responseFormat = (additionalFields.response_format as string) ?? 'mp3';
+	requestBody.response_format = responseFormat;
+	if (additionalFields.sample_rate !== undefined) {
+		requestBody.sample_rate = additionalFields.sample_rate;
+	}
+	if (additionalFields.speed !== undefined) {
+		requestBody.speed = additionalFields.speed;
+	}
+	if (additionalFields.gain !== undefined) {
+		requestBody.gain = additionalFields.gain;
+	}
+	if (additionalFields.stream !== undefined) {
+		requestBody.stream = additionalFields.stream;
+	}
+
+	const buffer = await siliconflowRequestBinary.call(this, '/audio/speech', requestBody);
+
+	const mimeType = responseFormatToMime(responseFormat);
+	const fileName = `speech.${responseFormat}`;
+	const binary = await this.helpers.prepareBinaryData(buffer, fileName, mimeType);
+
+	return {
+		json: {
+			model,
+			voice: voice && voice.trim() ? voice.trim() : null,
+			format: responseFormat,
+			size: buffer.length,
+			input,
+		},
+		binary,
+	};
+}
+
+// ---- Audio > Transcribe (ASR) ----
+// 请求为 multipart/form-data：上传音频二进制 + model 字段；响应为 JSON { text }。
+async function handleTranscribe(this: IExecuteFunctions, itemIndex: number): Promise<AudioResult> {
+	const model = resolveModelId(this, itemIndex, 'asrModelMode', 'asrModel', 'asrModelId');
+	const audioSource = this.getNodeParameter('asrAudioSource', itemIndex, 'binary') as string;
+	const customFileName = (this.getNodeParameter('asrFileName', itemIndex, '') as string).trim();
+
+	const { buffer, fileName } = await getAudioBuffer.call(this, itemIndex, audioSource, customFileName);
+
+	const mimeType = guessAudioMime(fileName);
+	const responseData = await siliconflowRequestMultipart.call(
+		this,
+		'/audio/transcriptions',
+		model,
+		buffer,
+		fileName,
+		mimeType,
+	);
+
+	return {
+		json: {
+			text: (responseData as any).text ?? '',
+			model,
+			fileName,
+		},
+	};
+}
+
+// Resolve an audio source (binary / url / base64) into a Buffer + file name.
+async function getAudioBuffer(
+	this: IExecuteFunctions,
+	itemIndex: number,
+	source: string,
+	customFileName: string,
+): Promise<{ buffer: Buffer; fileName: string }> {
+	const items = this.getInputData();
+
+	if (source === 'url') {
+		const url = (this.getNodeParameter('asrAudioUrl', itemIndex, '') as string).trim();
+		if (!url) {
+			throw new NodeOperationError(this.getNode(), 'Audio URL is required when using URL source');
+		}
+		// Plain HTTP GET — do NOT attach the SiliconFlow credential to an arbitrary URL.
+		const options: IHttpRequestOptions = {
+			method: 'GET',
+			url,
+			encoding: 'arraybuffer',
+		};
+		const buf = toBuffer(await this.helpers.httpRequest.call(this, options));
+		if (buf.length === 0) {
+			throw new NodeOperationError(this.getNode(), 'Downloaded audio from URL was empty');
+		}
+		const name = customFileName || fileNameFromUrl(url) || 'audio.mp3';
+		return { buffer: buf, fileName: name };
+	}
+
+	if (source === 'base64') {
+		const raw = (this.getNodeParameter('asrBase64Data', itemIndex, '') as string).trim();
+		if (!raw) {
+			throw new NodeOperationError(this.getNode(), 'Base64 data is required when using base64 source');
+		}
+		let cleaned = raw;
+		if (cleaned.startsWith('data:')) {
+			const idx = cleaned.indexOf('base64,');
+			if (idx !== -1) cleaned = cleaned.substring(idx + 7);
+		}
+		cleaned = cleaned.replace(/\s/g, '');
+		if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) {
+			throw new NodeOperationError(this.getNode(), 'Invalid base64 audio data');
+		}
+		const buf = Buffer.from(cleaned, 'base64');
+		if (buf.length === 0) {
+			throw new NodeOperationError(this.getNode(), 'Decoded base64 audio is empty');
+		}
+		const name = customFileName || 'audio.mp3';
+		return { buffer: buf, fileName: name };
+	}
+
+	// binary — read the actual bytes via n8n's helper (works for both in-memory and
+	// filesystem binary data modes; never rely on .data directly).
+	const binaryProperty = (this.getNodeParameter('asrBinaryProperty', itemIndex, 'data') as string).trim() || 'data';
+	const binaryData = items[itemIndex].binary?.[binaryProperty];
+	if (!binaryData) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`No binary data found in property "${binaryProperty}". Available properties: ${Object.keys(
+				items[itemIndex].binary || {},
+			).join(', ')}`,
+		);
+	}
+	let buf: Buffer;
+	try {
+		buf = await this.helpers.getBinaryDataBuffer(itemIndex, binaryProperty);
+	} catch (err) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`Could not read binary data from property "${binaryProperty}": ${(err as Error).message}`,
+		);
+	}
+	if (!buf || buf.length === 0) {
+		throw new NodeOperationError(this.getNode(), `Binary property "${binaryProperty}" is empty`);
+	}
+	const name = customFileName || binaryData.fileName || 'audio.mp3';
+	return { buffer: buf, fileName: name };
+}
+
+// ----------------------------------------------------------------
+// Binary-response request helper (TTS: JSON body → binary audio response)
+// ----------------------------------------------------------------
+async function siliconflowRequestBinary(
+	this: IExecuteFunctions,
+	path: string,
+	body: IDataObject,
+): Promise<Buffer> {
+	const credentials = (await this.getCredentials('siliconFlowApi')) as { baseUrl?: string };
+	const baseUrl = (credentials.baseUrl || '').replace(/\/+$/, '');
+	const options: IHttpRequestOptions = {
+		method: 'POST',
+		url: `${baseUrl}${path}`,
+		body: JSON.stringify(body),
+		json: false,
+		encoding: 'arraybuffer',
+		headers: {
+			'Content-Type': 'application/json',
+			Accept: 'audio/*',
+		},
+	};
+	const result = await this.helpers.httpRequestWithAuthentication.call(
+		this,
+		'siliconFlowApi',
+		options,
+	);
+	const buffer = toBuffer(result);
+	if (!buffer || buffer.length === 0) {
+		throw new NodeOperationError(this.getNode(), 'Audio response from the API was empty');
+	}
+	return buffer;
+}
+
+// ----------------------------------------------------------------
+// Multipart request helper (ASR: upload audio file → JSON { text })
+// ----------------------------------------------------------------
+async function siliconflowRequestMultipart(
+	this: IExecuteFunctions,
+	path: string,
+	model: string,
+	fileBuffer: Buffer,
+	fileName: string,
+	mimeType: string,
+): Promise<IDataObject> {
+	const credentials = (await this.getCredentials('siliconFlowApi')) as { baseUrl?: string };
+	const baseUrl = (credentials.baseUrl || '').replace(/\/+$/, '');
+
+	// form-data is a direct dependency of n8n-workflow, so it is always available
+	// at runtime in any n8n environment — no extra package dependency needed here.
+	const form = new FormData();
+	form.append('model', model);
+	form.append('file', fileBuffer, { filename: fileName, contentType: mimeType });
+
+	const options: IHttpRequestOptions = {
+		method: 'POST',
+		url: `${baseUrl}${path}`,
+		body: form,
+		json: true,
+		// The multipart Content-Type (with boundary) must come from the form instance.
+		headers: form.getHeaders() as IDataObject,
+	};
+
+	return (await this.helpers.httpRequestWithAuthentication.call(
+		this,
+		'siliconFlowApi',
+		options,
+	)) as IDataObject;
+}
+
+// Coerce an httpRequest result (Buffer / ArrayBuffer / TypedArray) into a Node Buffer.
+function toBuffer(value: unknown): Buffer {
+	if (Buffer.isBuffer(value)) return value;
+	if (value instanceof ArrayBuffer) return Buffer.from(value);
+	if (ArrayBuffer.isView(value)) {
+		const view = value as ArrayBufferView;
+		return Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+	}
+	if (typeof value === 'string') return Buffer.from(value, 'binary');
+	throw new Error('Unexpected audio response type from the API');
+}
+
+function responseFormatToMime(format: string): string {
+	switch (format) {
+		case 'wav':
+			return 'audio/wav';
+		case 'opus':
+			return 'audio/opus';
+		case 'pcm':
+			return 'audio/pcm';
+		case 'mp3':
+		default:
+			return 'audio/mpeg';
+	}
+}
+
+function guessAudioMime(fileName: string): string {
+	const ext = (fileName.split('.').pop() || '').toLowerCase();
+	switch (ext) {
+		case 'wav':
+			return 'audio/wav';
+		case 'mp3':
+			return 'audio/mpeg';
+		case 'ogg':
+			return 'audio/ogg';
+		case 'flac':
+			return 'audio/flac';
+		case 'm4a':
+			return 'audio/mp4';
+		case 'aac':
+			return 'audio/aac';
+		case 'opus':
+			return 'audio/opus';
+		default:
+			return 'application/octet-stream';
+	}
+}
+
+function fileNameFromUrl(url: string): string {
+	try {
+		const u = new URL(url);
+		const base = u.pathname.split('/').pop();
+		return base && base.includes('.') ? base : '';
+	} catch {
+		return '';
+	}
 }

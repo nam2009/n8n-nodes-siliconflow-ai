@@ -2,6 +2,17 @@
 
 本项目 `n8n-nodes-siliconflow-ai` 是 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 的重写版本，保留相同功能的同时解决了在最新 n8n 上的 `ERESOLVE` 安装失败问题。
 
+## [0.5.0] — 2026-06-29
+
+### Added
+- SiliconFlow 动作节点新增 **Audio 资源**，含两个操作：
+  - **Generate Speech（文生语音 / TTS）**：`POST /audio/speech`，输入文本 → 输出二进制音频（mp3/wav/opus/pcm）。支持 `FunAudioLLM/CosyVoice2-0.5B`、`fnlp/MOSS-TTSD-v0.5`；可设置音色 `voice`、采样率、语速 `speed`、增益 `gain`、流式等。音频以二进制属性 `data` 输出，可直接写入文件。
+  - **Transcribe（语音转写 / ASR）**：`POST /audio/transcriptions`，上传音频 → 输出文本。支持 `FunAudioLLM/SenseVoiceSmall`、`TeleAI/TeleSpeechASR`；音频来源支持 Binary Data / URL / Base64。
+- 新增 `TTS_MODEL_IDS`、`ASR_MODEL_IDS` 模型清单（`nodes/shared/models.ts`）。
+
+### Changed
+- 由于 `form-data` 是 `n8n-workflow` 的直接依赖，运行时始终可用，ASR 的 multipart 上传复用它，**未引入任何新的运行时依赖**，保持零依赖安装体验。
+
 ## [0.4.2] — 2026-06-29
 
 ### Fixed
