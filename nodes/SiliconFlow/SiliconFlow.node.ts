@@ -865,7 +865,9 @@ async function handleVision(this: IExecuteFunctions, itemIndex: number): Promise
 			else if (imageFormat === 'gif') mimeType = 'image/gif';
 			imageUrl = `data:${mimeType};base64,${cleanedBase64}`;
 		} else {
-			// binary
+			// binary — read the actual bytes via n8n's helper. This works for BOTH the
+			// default (in-memory base64 in .data) and the filesystem binary data mode,
+			// where .data is empty and the file lives on disk. Never rely on .data directly.
 			const binaryProperty = imageConfig.binaryProperty || 'data';
 			const binaryData = items[itemIndex].binary?.[binaryProperty];
 			if (!binaryData) {
@@ -885,15 +887,22 @@ async function handleVision(this: IExecuteFunctions, itemIndex: number): Promise
 			else mimeType = 'image/jpeg';
 			if (imageFormat !== 'auto') mimeType = `image/${imageFormat}`;
 
-			const base64Data = binaryData.data;
-			if (!base64Data) {
-				throw new NodeOperationError(this.getNode(), 'Binary data does not contain valid image data');
+			let buffer: Buffer;
+			try {
+				buffer = await this.helpers.getBinaryDataBuffer(itemIndex, binaryProperty);
+			} catch (err) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`Could not read binary data from property "${binaryProperty}": ${(err as Error).message}`,
+				);
 			}
-			const cleaned = base64Data.replace(/\s/g, '');
-			if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) {
-				throw new NodeOperationError(this.getNode(), 'Invalid base64 data format in binary property');
+			if (!buffer || buffer.length === 0) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`Binary property "${binaryProperty}" is empty`,
+				);
 			}
-			imageUrl = `data:${mimeType};base64,${cleaned}`;
+			imageUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
 		}
 
 		const imageContent: IDataObject = {
