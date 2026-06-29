@@ -1,25 +1,24 @@
 import {
 	IDataObject,
 	IExecuteFunctions,
+	IHttpRequestOptions,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	NodeApiError,
 	NodeOperationError,
 } from 'n8n-workflow';
 
-import type { IHttpRequestOptions, JsonObject } from 'n8n-workflow';
-
 /**
- * SiliconFlow（硅基流动）AI 节点 v0.2.0
+ * SiliconFlow（硅基流动）AI 节点
  *
  * 本节点使用 n8n 内置的 helpers.httpRequestWithAuthentication 直接调用 SiliconFlow
- * 的 OpenAI 兼容 REST API，不引入任何 langchain 或 axios 等三方依赖，从而彻底规避
- * 宿主 n8n 环境的 peer dependency 冲突。
+ * 的 OpenAI 兼容 REST API，不引入任何 langchain / axios 等三方运行时依赖，从而彻底
+ * 规避宿主 n8n 环境的 peer dependency（ERESOLVE）冲突。
  *
- * 支持的能力：
+ * 支持的资源：
  *   - Chat Completion  （POST /chat/completions）
- *   - Embedding        （POST /embeddings）
+ *   - Vision           （POST /chat/completions，多模态图片理解）
+ *   - Embeddings       （POST /embeddings）
  *   - Image Generation （POST /images/generations）
  *   - Rerank           （POST /rerank）
  */
@@ -30,8 +29,8 @@ export class SiliconFlow implements INodeType {
 		icon: 'file:siliconflow.svg',
 		group: ['transform'],
 		version: 1,
-		subtitle: '={{$parameter["resource"] + ": " + $parameter["operation"]}}',
-		description: '调用 SiliconFlow（硅基流动）AI 能力：Chat Completion / Embedding / Image / Rerank',
+		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
+		description: 'Interact with SiliconFlow AI models (Chat / Vision / Embeddings / Image / Rerank)',
 		defaults: {
 			name: 'SiliconFlow',
 		},
@@ -46,160 +45,433 @@ export class SiliconFlow implements INodeType {
 		requestDefaults: {
 			baseURL: '={{$credentials.baseUrl}}',
 			headers: {
+				Accept: 'application/json',
 				'Content-Type': 'application/json',
 			},
 		},
 		properties: [
-			// ============================================================
-			// Resource
-			// ============================================================
 			{
 				displayName: 'Resource',
 				name: 'resource',
 				type: 'options',
 				noDataExpression: true,
 				options: [
+					{ name: 'Chat', value: 'chat' },
 					{
-						name: 'Chat Completion',
-						value: 'chat',
-						description: '与大语言模型对话（OpenAI 兼容）',
+						name: 'Vision',
+						value: 'vision',
+						description: 'Vision language model with image understanding',
 					},
-					{
-						name: 'Embedding',
-						value: 'embedding',
-						description: '将文本转换为向量',
-					},
-					{
-						name: 'Image Generation',
-						value: 'image',
-						description: '文生图',
-					},
-					{
-						name: 'Rerank',
-						value: 'rerank',
-						description: '文档重排序（用于 RAG 检索后处理）',
-					},
+					{ name: 'Embeddings', value: 'embeddings' },
+					{ name: 'Image', value: 'image' },
+					{ name: 'Rerank', value: 'rerank' },
 				],
 				default: 'chat',
 			},
 
-			// ============================================================
-			// Chat 相关字段
-			// ============================================================
+			// ---------------- Chat ----------------
 			{
 				displayName: 'Operation',
 				name: 'operation',
 				type: 'options',
 				noDataExpression: true,
-				displayOptions: {
-					show: {
-						resource: ['chat'],
-					},
-				},
+				displayOptions: { show: { resource: ['chat'] } },
 				options: [
 					{
-						name: 'Send Message',
-						value: 'send',
-						action: 'Send a chat completion request',
+						name: 'Complete',
+						value: 'complete',
+						description: 'Create a chat completion',
+						action: 'Create a chat completion',
 					},
 				],
-				default: 'send',
+				default: 'complete',
 			},
 			{
 				displayName: 'Model',
 				name: 'model',
-				type: 'string',
-				default: 'Qwen/Qwen2.5-7B-Instruct',
-				required: true,
-				description:
-					'模型 ID。完整列表：https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions',
-				displayOptions: {
-					show: {
-						resource: ['chat'],
+				type: 'options',
+				displayOptions: { show: { resource: ['chat'], operation: ['complete'] } },
+				description: 'The model which will generate the completion. All models support tools calling.',
+				typeOptions: {
+					loadOptions: {
+						routing: {
+							request: { method: 'GET', url: '/models?sub_type=chat' },
+							output: {
+								postReceive: [
+									{ type: 'rootProperty', properties: { property: 'data' } },
+									{
+										type: 'setKeyValue',
+										properties: {
+											name: '={{$responseItem.id}}',
+											value: '={{$responseItem.id}}',
+										},
+									},
+									{ type: 'sort', properties: { key: 'name' } },
+								],
+							},
+						},
 					},
 				},
+				default: 'THUDM/glm-4-plus',
 			},
 			{
 				displayName: 'Messages',
 				name: 'messages',
-				type: 'json',
-				default: '=[{"role":"user","content":"Hello"}]',
-				required: true,
-				description:
-					'OpenAI 格式的 messages 数组。支持 JSON 表达式，可引用上游数据，例如：[{"role":"user","content":"{{$json.text}}"}]',
-				displayOptions: {
-					show: {
-						resource: ['chat'],
-					},
-				},
-			},
-			{
-				displayName: 'Additional Options',
-				name: 'additionalOptions',
-				type: 'collection',
-				placeholder: 'Add Option',
+				type: 'fixedCollection',
+				displayOptions: { show: { resource: ['chat'], operation: ['complete'] } },
 				default: {},
-				displayOptions: {
-					show: {
-						resource: ['chat'],
-					},
-				},
+				typeOptions: { multipleValues: true },
 				options: [
 					{
-						displayName: 'Temperature',
-						name: 'temperature',
-						type: 'number',
-						default: 0.7,
-						typeOptions: {
-							minValue: 0,
-							maxValue: 2,
-						},
-						description: '采样温度，0 表示更确定，2 表示更发散',
+						name: 'messageValues',
+						displayName: 'Message',
+						values: [
+							{
+								displayName: 'Role',
+								name: 'role',
+								type: 'options',
+								options: [
+									{ name: 'System', value: 'system' },
+									{ name: 'User', value: 'user' },
+									{ name: 'Assistant', value: 'assistant' },
+								],
+								default: 'user',
+							},
+							{
+								displayName: 'Content',
+								name: 'content',
+								type: 'string',
+								default: '',
+								typeOptions: { rows: 3 },
+							},
+						],
 					},
+				],
+			},
+			{
+				displayName: 'Prompt',
+				name: 'prompt',
+				type: 'string',
+				displayOptions: { show: { resource: ['chat'], operation: ['complete'] } },
+				default: '',
+				description: 'Simple prompt text (alternative to messages)',
+				typeOptions: { rows: 3 },
+			},
+			{
+				displayName: 'Output Mode',
+				name: 'outputMode',
+				type: 'options',
+				displayOptions: { show: { resource: ['chat'], operation: ['complete'] } },
+				options: [
+					{
+						name: 'Simple (Message Only)',
+						value: 'simple',
+						description: 'Return only the message content as a string',
+					},
+					{
+						name: 'Detailed (With Metadata)',
+						value: 'detailed',
+						description: 'Return structured object with message, usage, and metadata',
+					},
+				],
+				default: 'simple',
+				description: 'Choose the output format',
+			},
+			{
+				displayName: 'Additional Fields',
+				name: 'additionalFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: { show: { resource: ['chat'], operation: ['complete'] } },
+				options: [
 					{
 						displayName: 'Max Tokens',
 						name: 'max_tokens',
 						type: 'number',
 						default: 512,
-						description: '生成的最大 token 数',
+						typeOptions: { minValue: 1, maxValue: 32768 },
+						description: 'The maximum number of tokens to generate (1-32768)',
+					},
+					{
+						displayName: 'Temperature',
+						name: 'temperature',
+						type: 'number',
+						default: 0.7,
+						typeOptions: { minValue: 0, maxValue: 2, numberPrecision: 2 },
 					},
 					{
 						displayName: 'Top P',
 						name: 'top_p',
 						type: 'number',
-						default: 0.9,
-						typeOptions: {
-							minValue: 0,
-							maxValue: 1,
-						},
+						default: 0.7,
+						typeOptions: { minValue: 0, maxValue: 1, numberPrecision: 2 },
+					},
+					{
+						displayName: 'Top K',
+						name: 'top_k',
+						type: 'number',
+						default: 50,
+					},
+					{
+						displayName: 'Min P',
+						name: 'min_p',
+						type: 'number',
+						default: 0.05,
+						typeOptions: { minValue: 0, maxValue: 1, numberPrecision: 3 },
+						description: 'Dynamic filtering threshold for Qwen3 models (0-1)',
+					},
+					{
+						displayName: 'Frequency Penalty',
+						name: 'frequency_penalty',
+						type: 'number',
+						default: 0.5,
+						typeOptions: { numberPrecision: 2 },
+					},
+					{
+						displayName: 'Presence Penalty',
+						name: 'presence_penalty',
+						type: 'number',
+						default: 0,
+						typeOptions: { numberPrecision: 1, maxValue: 2, minValue: -2 },
+					},
+					{
+						displayName: 'Number of Generations',
+						name: 'n',
+						type: 'number',
+						default: 1,
+					},
+					{
+						displayName: 'Enable Thinking',
+						name: 'enable_thinking',
+						type: 'boolean',
+						default: true,
+						description:
+							'Switches between thinking and non-thinking modes (applies to Qwen3 and Hunyuan models)',
+					},
+					{
+						displayName: 'Thinking Budget',
+						name: 'thinking_budget',
+						type: 'number',
+						default: 4096,
+						typeOptions: { minValue: 128, maxValue: 32768 },
+						description: 'Maximum tokens for chain-of-thought output (128-32768, reasoning models)',
+					},
+					{
+						displayName: 'Stop Sequences',
+						name: 'stop',
+						type: 'string',
+						default: '',
+						description: 'Up to 4 sequences where the API will stop generating (comma-separated)',
 					},
 					{
 						displayName: 'Stream',
 						name: 'stream',
 						type: 'boolean',
 						default: false,
-						description: '是否启用流式响应（启用时本节点仍按非流式处理，因为 n8n 不支持边收边发）',
+						description: 'Whether to stream back partial progress as Server-Sent Events',
+					},
+					{
+						displayName: 'Response Format',
+						name: 'response_format',
+						type: 'fixedCollection',
+						default: {},
+						description: 'Format specification for the model output',
+						options: [
+							{
+								name: 'formatValues',
+								displayName: 'Format',
+								values: [
+									{
+										displayName: 'Type',
+										name: 'type',
+										type: 'options',
+										options: [
+											{ name: 'Text', value: 'text' },
+											{ name: 'JSON Object', value: 'json_object' },
+										],
+										default: 'text',
+									},
+								],
+							},
+						],
 					},
 				],
 			},
 
-			// ============================================================
-			// Embedding 相关字段
-			// ============================================================
+			// ---------------- Vision ----------------
 			{
 				displayName: 'Operation',
 				name: 'operation',
 				type: 'options',
 				noDataExpression: true,
-				displayOptions: {
-					show: {
-						resource: ['embedding'],
-					},
-				},
+				displayOptions: { show: { resource: ['vision'] } },
 				options: [
 					{
-						name: 'Create Embeddings',
+						name: 'Analyze',
+						value: 'analyze',
+						description: 'Analyze images with vision language model',
+						action: 'Analyze images with vision language model',
+					},
+				],
+				default: 'analyze',
+			},
+			{
+				displayName: 'Model',
+				name: 'visionModel',
+				type: 'options',
+				displayOptions: { show: { resource: ['vision'], operation: ['analyze'] } },
+				options: [
+					{ name: 'Qwen2.5-VL-72B-Instruct (最强视觉理解)', value: 'Qwen/Qwen2.5-VL-72B-Instruct' },
+					{ name: 'Qwen2.5-VL-32B-Instruct (高性能)', value: 'Qwen/Qwen2.5-VL-32B-Instruct' },
+					{ name: 'QVQ-72B-Preview (视觉推理)', value: 'Qwen/QVQ-72B-Preview' },
+					{ name: 'Qwen2-VL-72B-Instruct', value: 'Qwen/Qwen2-VL-72B-Instruct' },
+					{ name: 'Qwen2-VL-7B-Instruct (Pro)', value: 'Pro/Qwen/Qwen2-VL-7B-Instruct' },
+					{ name: 'Qwen2.5-VL-7B-Instruct (Pro)', value: 'Pro/Qwen/Qwen2.5-VL-7B-Instruct' },
+					{ name: 'DeepSeek-VL2 (短上下文优化)', value: 'deepseek-ai/deepseek-vl2' },
+				],
+				default: 'Qwen/Qwen2.5-VL-32B-Instruct',
+				required: true,
+				description: 'The vision language model to use for image analysis',
+			},
+			{
+				displayName: 'Images',
+				name: 'images',
+				type: 'fixedCollection',
+				displayOptions: { show: { resource: ['vision'], operation: ['analyze'] } },
+				default: {},
+				description: 'Images to analyze (supports binary data, URLs, or base64)',
+				typeOptions: { multipleValues: true, maxValue: 9 },
+				options: [
+					{
+						name: 'imageValues',
+						displayName: 'Image',
+						values: [
+							{
+								displayName: 'Image Source',
+								name: 'imageSource',
+								type: 'options',
+								options: [
+									{ name: 'Binary Data', value: 'binary', description: 'Use binary data from previous node' },
+									{ name: 'URL', value: 'url', description: 'Use image URL' },
+									{ name: 'Base64', value: 'base64', description: 'Use base64 encoded image' },
+								],
+								default: 'binary',
+							},
+							{
+								displayName: 'Binary Property',
+								name: 'binaryProperty',
+								type: 'string',
+								displayOptions: { show: { imageSource: ['binary'] } },
+								default: 'data',
+								description: 'Name of the binary property containing the image',
+							},
+							{
+								displayName: 'Image URL',
+								name: 'imageUrl',
+								type: 'string',
+								displayOptions: { show: { imageSource: ['url'] } },
+								default: '',
+								placeholder: 'https://example.com/image.jpg',
+							},
+							{
+								displayName: 'Base64 Data',
+								name: 'base64Data',
+								type: 'string',
+								displayOptions: { show: { imageSource: ['base64'] } },
+								default: '',
+								description: 'Base64 encoded image data (without data:image prefix)',
+								typeOptions: { rows: 4 },
+							},
+							{
+								displayName: 'Image Format',
+								name: 'imageFormat',
+								type: 'options',
+								displayOptions: { show: { imageSource: ['binary', 'base64'] } },
+								options: [
+									{ name: 'Auto Detect', value: 'auto' },
+									{ name: 'JPEG', value: 'jpeg' },
+									{ name: 'PNG', value: 'png' },
+									{ name: 'WebP', value: 'webp' },
+									{ name: 'GIF', value: 'gif' },
+								],
+								default: 'auto',
+							},
+							{
+								displayName: 'Detail Level',
+								name: 'detail',
+								type: 'options',
+								options: [
+									{ name: 'Auto', value: 'auto' },
+									{ name: 'Low', value: 'low', description: 'Low resolution (faster, cheaper)' },
+									{ name: 'High', value: 'high', description: 'High resolution (slower, more detailed)' },
+								],
+								default: 'auto',
+							},
+						],
+					},
+				],
+			},
+			{
+				displayName: 'Prompt',
+				name: 'visionPrompt',
+				type: 'string',
+				displayOptions: { show: { resource: ['vision'], operation: ['analyze'] } },
+				default: 'Describe what you see in this image.',
+				required: true,
+				description: 'Text prompt describing what you want to know about the image(s)',
+				typeOptions: { rows: 3 },
+			},
+			{
+				displayName: 'Additional Fields',
+				name: 'visionAdditionalFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: { show: { resource: ['vision'], operation: ['analyze'] } },
+				options: [
+					{
+						displayName: 'Max Tokens',
+						name: 'max_tokens',
+						type: 'number',
+						default: 1024,
+						typeOptions: { minValue: 1, maxValue: 8192 },
+					},
+					{
+						displayName: 'Temperature',
+						name: 'temperature',
+						type: 'number',
+						default: 0.7,
+						typeOptions: { minValue: 0, maxValue: 2, numberPrecision: 2 },
+					},
+					{
+						displayName: 'Top P',
+						name: 'top_p',
+						type: 'number',
+						default: 1,
+						typeOptions: { minValue: 0, maxValue: 1, numberPrecision: 2 },
+					},
+					{
+						displayName: 'Stream',
+						name: 'stream',
+						type: 'boolean',
+						default: false,
+					},
+				],
+			},
+
+			// ---------------- Embeddings ----------------
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: { show: { resource: ['embeddings'] } },
+				options: [
+					{
+						name: 'Create',
 						value: 'create',
+						description: 'Create embeddings',
 						action: 'Create embeddings',
 					},
 				],
@@ -207,73 +479,66 @@ export class SiliconFlow implements INodeType {
 			},
 			{
 				displayName: 'Model',
-				name: 'model',
-				type: 'string',
-				default: 'BAAI/bge-m3',
+				name: 'embeddingModel',
+				type: 'options',
+				displayOptions: { show: { resource: ['embeddings'], operation: ['create'] } },
+				options: [
+					{ name: 'BAAI/bge-large-zh-v1.5 (中文, 512 tokens)', value: 'BAAI/bge-large-zh-v1.5' },
+					{ name: 'BAAI/bge-large-en-v1.5 (英文, 512 tokens)', value: 'BAAI/bge-large-en-v1.5' },
+					{ name: 'BAAI/bge-m3 (多语言, 8192 tokens)', value: 'BAAI/bge-m3' },
+					{ name: 'Pro/BAAI/bge-m3 (多语言专业版, 8192 tokens)', value: 'Pro/BAAI/bge-m3' },
+					{ name: 'Qwen3-Embedding-8B (32768 tokens)', value: 'Qwen/Qwen3-Embedding-8B' },
+					{ name: 'Qwen3-Embedding-4B (32768 tokens)', value: 'Qwen/Qwen3-Embedding-4B' },
+					{ name: 'Qwen3-Embedding-0.6B (32768 tokens)', value: 'Qwen/Qwen3-Embedding-0.6B' },
+					{ name: 'netease-youdao/bce-embedding-base_v1 (512 tokens)', value: 'netease-youdao/bce-embedding-base_v1' },
+					{ name: 'sentence-transformers/all-MiniLM-L6-v2', value: 'sentence-transformers/all-MiniLM-L6-v2' },
+				],
+				default: 'BAAI/bge-large-zh-v1.5',
 				required: true,
-				description: 'Embedding 模型 ID，例如 BAAI/bge-m3、Pro/BAAI/bge-m3',
-				displayOptions: {
-					show: {
-						resource: ['embedding'],
-					},
-				},
 			},
 			{
 				displayName: 'Input',
 				name: 'input',
-				type: 'json',
-				default: '="hello"',
+				type: 'string',
+				displayOptions: { show: { resource: ['embeddings'], operation: ['create'] } },
+				default: '',
 				required: true,
-				description:
-					'要编码的文本。可为单个字符串（如 "hello"）或字符串数组（如 ["text1","text2"]）。支持 JSON 表达式，可引用上游 {{$json.texts}}。',
-				displayOptions: {
-					show: {
-						resource: ['embedding'],
-					},
-				},
+				description: 'Input text to embed (string, or JSON array of strings)',
+				typeOptions: { rows: 3 },
 			},
 			{
-				displayName: 'Additional Options',
-				name: 'additionalOptions',
+				displayName: 'Additional Fields',
+				name: 'embeddingAdditionalFields',
 				type: 'collection',
-				placeholder: 'Add Option',
+				placeholder: 'Add Field',
 				default: {},
-				displayOptions: {
-					show: {
-						resource: ['embedding'],
-					},
-				},
+				displayOptions: { show: { resource: ['embeddings'], operation: ['create'] } },
 				options: [
 					{
 						displayName: 'Encoding Format',
 						name: 'encoding_format',
 						type: 'options',
-						default: 'float',
 						options: [
 							{ name: 'Float', value: 'float' },
 							{ name: 'Base64', value: 'base64' },
 						],
+						default: 'float',
 					},
 				],
 			},
 
-			// ============================================================
-			// Image Generation 相关字段
-			// ============================================================
+			// ---------------- Image Generation ----------------
 			{
 				displayName: 'Operation',
 				name: 'operation',
 				type: 'options',
 				noDataExpression: true,
-				displayOptions: {
-					show: {
-						resource: ['image'],
-					},
-				},
+				displayOptions: { show: { resource: ['image'] } },
 				options: [
 					{
 						name: 'Generate',
 						value: 'generate',
+						description: 'Generate an image from a prompt',
 						action: 'Generate an image from a prompt',
 					},
 				],
@@ -281,45 +546,36 @@ export class SiliconFlow implements INodeType {
 			},
 			{
 				displayName: 'Model',
-				name: 'model',
-				type: 'string',
-				default: 'stabilityai/stable-diffusion-2-1',
+				name: 'imageModel',
+				type: 'options',
+				displayOptions: { show: { resource: ['image'], operation: ['generate'] } },
+				options: [
+					{ name: 'FLUX.1-schnell', value: 'black-forest-labs/FLUX.1-schnell' },
+					{ name: 'FLUX.1-dev', value: 'black-forest-labs/FLUX.1-dev' },
+					{ name: 'Stable Diffusion 2.1', value: 'stabilityai/stable-diffusion-2-1' },
+					{ name: 'Stable Diffusion 3.5 Large', value: 'stabilityai/stable-diffusion-3.5-large' },
+					{ name: 'Kolors', value: 'Kwai-Kolors/Kolors' },
+				],
+				default: 'black-forest-labs/FLUX.1-schnell',
 				required: true,
-				description:
-					'图像模型 ID，例如 stabilityai/stable-diffusion-2-1、black-forest-labs/FLUX.1-schnell',
-				displayOptions: {
-					show: {
-						resource: ['image'],
-					},
-				},
 			},
 			{
 				displayName: 'Prompt',
-				name: 'prompt',
+				name: 'imagePrompt',
 				type: 'string',
-				typeOptions: {
-					rows: 3,
-				},
+				displayOptions: { show: { resource: ['image'], operation: ['generate'] } },
 				default: '',
 				required: true,
-				description: '用于生成图像的文本提示词',
-				displayOptions: {
-					show: {
-						resource: ['image'],
-					},
-				},
+				description: 'Text prompt used to generate the image',
+				typeOptions: { rows: 3 },
 			},
 			{
-				displayName: 'Additional Options',
-				name: 'additionalOptions',
+				displayName: 'Additional Fields',
+				name: 'imageAdditionalFields',
 				type: 'collection',
-				placeholder: 'Add Option',
+				placeholder: 'Add Field',
 				default: {},
-				displayOptions: {
-					show: {
-						resource: ['image'],
-					},
-				},
+				displayOptions: { show: { resource: ['image'], operation: ['generate'] } },
 				options: [
 					{
 						displayName: 'Negative Prompt',
@@ -327,7 +583,6 @@ export class SiliconFlow implements INodeType {
 						type: 'string',
 						typeOptions: { rows: 2 },
 						default: '',
-						description: '不希望出现的元素描述',
 					},
 					{
 						displayName: 'Image Size',
@@ -354,7 +609,7 @@ export class SiliconFlow implements INodeType {
 						name: 'seed',
 						type: 'number',
 						default: 0,
-						description: '随机种子；0 表示随机',
+						description: 'Random seed; 0 means random',
 					},
 					{
 						displayName: 'Guidance Scale',
@@ -373,109 +628,94 @@ export class SiliconFlow implements INodeType {
 				],
 			},
 
-			// ============================================================
-			// Rerank 相关字段
-			// ============================================================
+			// ---------------- Rerank ----------------
 			{
 				displayName: 'Operation',
 				name: 'operation',
 				type: 'options',
 				noDataExpression: true,
-				displayOptions: {
-					show: {
-						resource: ['rerank'],
-					},
-				},
+				displayOptions: { show: { resource: ['rerank'] } },
 				options: [
 					{
-						name: 'Rerank Documents',
-						value: 'rerank',
-						action: 'Rerank documents against a query',
+						name: 'Create',
+						value: 'create',
+						description: 'Create rerank request',
+						action: 'Create rerank request',
 					},
 				],
-				default: 'rerank',
+				default: 'create',
 			},
 			{
 				displayName: 'Model',
-				name: 'model',
-				type: 'string',
+				name: 'rerankModel',
+				type: 'options',
+				displayOptions: { show: { resource: ['rerank'], operation: ['create'] } },
+				options: [
+					{ name: 'Qwen3-Reranker-8B', value: 'Qwen/Qwen3-Reranker-8B' },
+					{ name: 'Qwen3-Reranker-4B', value: 'Qwen/Qwen3-Reranker-4B' },
+					{ name: 'Qwen3-Reranker-0.6B', value: 'Qwen/Qwen3-Reranker-0.6B' },
+					{ name: 'BAAI/bge-reranker-v2-m3', value: 'BAAI/bge-reranker-v2-m3' },
+					{ name: 'Pro/BAAI/bge-reranker-v2-m3 (专业版)', value: 'Pro/BAAI/bge-reranker-v2-m3' },
+					{ name: 'netease-youdao/bce-reranker-base_v1', value: 'netease-youdao/bce-reranker-base_v1' },
+				],
 				default: 'BAAI/bge-reranker-v2-m3',
 				required: true,
-				description: 'Rerank 模型 ID，例如 BAAI/bge-reranker-v2-m3',
-				displayOptions: {
-					show: {
-						resource: ['rerank'],
-					},
-				},
 			},
 			{
 				displayName: 'Query',
 				name: 'query',
 				type: 'string',
-				typeOptions: {
-					rows: 2,
-				},
+				displayOptions: { show: { resource: ['rerank'], operation: ['create'] } },
 				default: '',
 				required: true,
-				description: '用户查询',
-				displayOptions: {
-					show: {
-						resource: ['rerank'],
-					},
-				},
+				description: 'The search query',
+				typeOptions: { rows: 2 },
 			},
 			{
 				displayName: 'Documents',
 				name: 'documents',
-				type: 'json',
-				default: '=[{"text":"示例文档 1"},{"text":"示例文档 2"}]',
+				type: 'string',
+				displayOptions: { show: { resource: ['rerank'], operation: ['create'] } },
+				default: '',
 				required: true,
-				description:
-					'文档数组。可以是字符串数组 ["doc1","doc2"] 或对象数组 [{"text":"doc1"}]。支持 JSON 表达式，可引用上游数据。',
-				displayOptions: {
-					show: {
-						resource: ['rerank'],
-					},
-				},
+				description: 'Documents to rerank (one per line or comma-separated)',
+				typeOptions: { rows: 5 },
 			},
 			{
-				displayName: 'Additional Options',
-				name: 'additionalOptions',
+				displayName: 'Additional Fields',
+				name: 'rerankAdditionalFields',
 				type: 'collection',
-				placeholder: 'Add Option',
+				placeholder: 'Add Field',
 				default: {},
-				displayOptions: {
-					show: {
-						resource: ['rerank'],
-					},
-				},
+				displayOptions: { show: { resource: ['rerank'], operation: ['create'] } },
 				options: [
 					{
 						displayName: 'Top N',
 						name: 'top_n',
 						type: 'number',
-						default: 5,
-						description: '返回前 N 个最相关文档',
+						default: 4,
+						typeOptions: { minValue: 1 },
 					},
 					{
 						displayName: 'Return Documents',
 						name: 'return_documents',
 						type: 'boolean',
-						default: true,
-						description: '是否在响应中包含原始文档内容',
+						default: false,
 					},
 					{
 						displayName: 'Max Chunks Per Doc',
 						name: 'max_chunks_per_doc',
 						type: 'number',
-						default: 0,
-						description: '每个文档的最大切分数（0 表示不切分）',
+						default: 10,
+						description: 'Maximum chunks for long documents (BGE/Youdao models only)',
 					},
 					{
 						displayName: 'Overlap Tokens',
 						name: 'overlap_tokens',
 						type: 'number',
-						default: 80,
+						default: 20,
+						typeOptions: { maxValue: 80 },
+						description: 'Token overlaps between chunks (BGE/Youdao models only, max 80)',
 					},
 				],
 			},
@@ -485,41 +725,36 @@ export class SiliconFlow implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
-
 		const resource = this.getNodeParameter('resource', 0) as string;
 
 		for (let i = 0; i < items.length; i++) {
 			try {
-				let responseData: IDataObject;
+				let outputData: IDataObject;
 
 				if (resource === 'chat') {
-					responseData = await handleChat(this, i);
-				} else if (resource === 'embedding') {
-					responseData = await handleEmbedding(this, i);
+					outputData = await handleChat.call(this, i);
+				} else if (resource === 'vision') {
+					outputData = await handleVision.call(this, i);
+				} else if (resource === 'embeddings') {
+					outputData = await handleEmbeddings.call(this, i);
 				} else if (resource === 'image') {
-					responseData = await handleImage(this, i);
+					outputData = await handleImage.call(this, i);
 				} else if (resource === 'rerank') {
-					responseData = await handleRerank(this, i);
+					outputData = await handleRerank.call(this, i);
 				} else {
-					throw new NodeOperationError(this.getNode(), `未知的 Resource: ${resource}`, {
-						itemIndex: i,
-					});
+					throw new NodeOperationError(this.getNode(), `Unknown resource: ${resource}`);
 				}
 
-				const executionData = this.helpers.constructExecutionMetaData(
-					this.helpers.returnJsonArray(responseData as JsonObject),
-					{ itemData: { item: i } },
-				);
-				returnData.push(...executionData);
+				returnData.push({ json: outputData, pairedItem: { item: i } });
 			} catch (error) {
 				if (this.continueOnFail()) {
 					returnData.push({
-						json: { error: (error as Error).message },
+						json: { error: error instanceof Error ? error.message : 'Unknown error occurred' },
 						pairedItem: { item: i },
 					});
 					continue;
 				}
-				throw new NodeApiError(this.getNode(), error as unknown as JsonObject, { itemIndex: i });
+				throw error;
 			}
 		}
 
@@ -528,75 +763,236 @@ export class SiliconFlow implements INodeType {
 }
 
 // ----------------------------------------------------------------
-// Helper functions（独立于类外，正确接收 IExecuteFunctions 上下文）
+// Shared request helper — uses n8n's built-in HTTP client with the
+// SiliconFlow credential (Bearer token injected automatically).
 // ----------------------------------------------------------------
-
-/**
- * Chat Completion 处理函数
- */
-async function handleChat(ctx: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = ctx.getNodeParameter('model', itemIndex) as string;
-	const messages = ctx.getNodeParameter('messages', itemIndex) as IDataObject[];
-	const additionalOptions = ctx.getNodeParameter(
-		'additionalOptions',
-		itemIndex,
-		{},
-	) as IDataObject;
-
-	const body: IDataObject = {
-		model,
-		messages,
-		stream: false,
-	};
-
-	if (typeof additionalOptions.temperature === 'number') {
-		body.temperature = additionalOptions.temperature;
-	}
-	if (typeof additionalOptions.max_tokens === 'number') {
-		body.max_tokens = additionalOptions.max_tokens;
-	}
-	if (typeof additionalOptions.top_p === 'number') {
-		body.top_p = additionalOptions.top_p;
-	}
-
-	const requestOptions: IHttpRequestOptions = {
+async function siliconflowRequest(
+	this: IExecuteFunctions,
+	path: string,
+	body: IDataObject,
+): Promise<IDataObject> {
+	const options: IHttpRequestOptions = {
 		method: 'POST',
-		url: '/chat/completions',
+		url: path,
 		body,
 		json: true,
+		headers: { 'Content-Type': 'application/json' },
 	};
-
-	return (await ctx.helpers.httpRequestWithAuthentication.call(
-		ctx,
+	return (await this.helpers.httpRequestWithAuthentication.call(
+		this,
 		'siliconFlowApi',
-		requestOptions,
+		options,
 	)) as IDataObject;
 }
 
-/**
- * Embedding 处理函数
- */
-async function handleEmbedding(ctx: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = ctx.getNodeParameter('model', itemIndex) as string;
-	const inputRaw = ctx.getNodeParameter('input', itemIndex) as unknown;
-	const additionalOptions = ctx.getNodeParameter(
-		'additionalOptions',
-		itemIndex,
-		{},
-	) as IDataObject;
+// ----------------------------------------------------------------
+// Chat Completion
+// ----------------------------------------------------------------
+async function handleChat(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
+	const model = this.getNodeParameter('model', itemIndex) as string;
+	const prompt = this.getNodeParameter('prompt', itemIndex, '') as string;
+	const messagesParam = this.getNodeParameter('messages', itemIndex, {}) as {
+		messageValues?: Array<{ role: string; content: string }>;
+	};
+	const additionalFields = this.getNodeParameter('additionalFields', itemIndex, {}) as IDataObject;
+	const outputMode = this.getNodeParameter('outputMode', itemIndex, 'simple') as string;
 
-	// input 可能是字符串或字符串数组；优先按 JSON 解析
+	let messages: Array<{ role: string; content: string }>;
+	if (messagesParam?.messageValues && messagesParam.messageValues.length > 0) {
+		messages = messagesParam.messageValues;
+	} else if (prompt) {
+		messages = [{ role: 'user', content: prompt }];
+	} else {
+		throw new NodeOperationError(this.getNode(), 'Either messages or prompt must be provided');
+	}
+
+	const requestBody: IDataObject = { model, messages };
+
+	if (additionalFields.max_tokens !== undefined) requestBody.max_tokens = additionalFields.max_tokens;
+	if (additionalFields.temperature !== undefined) requestBody.temperature = additionalFields.temperature;
+	if (additionalFields.top_p !== undefined) requestBody.top_p = additionalFields.top_p;
+	if (additionalFields.top_k !== undefined) requestBody.top_k = additionalFields.top_k;
+	if (additionalFields.min_p !== undefined) requestBody.min_p = additionalFields.min_p;
+	if (additionalFields.frequency_penalty !== undefined)
+		requestBody.frequency_penalty = additionalFields.frequency_penalty;
+	if (additionalFields.presence_penalty !== undefined)
+		requestBody.presence_penalty = additionalFields.presence_penalty;
+	if (additionalFields.n !== undefined) requestBody.n = additionalFields.n;
+	if (additionalFields.enable_thinking !== undefined)
+		requestBody.enable_thinking = additionalFields.enable_thinking;
+	if (additionalFields.thinking_budget !== undefined)
+		requestBody.thinking_budget = additionalFields.thinking_budget;
+	if (additionalFields.stream !== undefined) requestBody.stream = additionalFields.stream;
+
+	if (additionalFields.stop && (additionalFields.stop as string).trim()) {
+		requestBody.stop = (additionalFields.stop as string)
+			.split(',')
+			.map((s) => s.trim())
+			.filter((s) => s);
+	}
+
+	const responseFormat = additionalFields.response_format as
+		| { formatValues?: { type?: string } }
+		| undefined;
+	if (responseFormat?.formatValues) {
+		requestBody.response_format = { type: responseFormat.formatValues.type };
+	}
+
+	const responseData = await siliconflowRequest.call(this, '/chat/completions', requestBody);
+	const choice = (responseData as any).choices?.[0];
+	if (!choice) {
+		throw new NodeOperationError(this.getNode(), 'No response received from the model');
+	}
+
+	if (outputMode === 'simple') {
+		return { content: choice.message?.content || '' };
+	}
+
+	return {
+		message: choice.message?.content || '',
+		model: (responseData as any).model,
+		finishReason: choice.finish_reason,
+		usage: (responseData as any).usage,
+		...(choice.message?.reasoning_content && { reasoning: choice.message.reasoning_content }),
+		...(choice.message?.tool_calls && { toolCalls: choice.message.tool_calls }),
+		_rawResponse: responseData,
+	} as IDataObject;
+}
+
+// ----------------------------------------------------------------
+// Vision (multimodal image analysis)
+// ----------------------------------------------------------------
+async function handleVision(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
+	const items = this.getInputData();
+	const model = this.getNodeParameter('visionModel', itemIndex) as string;
+	const prompt = this.getNodeParameter('visionPrompt', itemIndex) as string;
+	const imagesParam = this.getNodeParameter('images', itemIndex, {}) as {
+		imageValues?: Array<Record<string, string>>;
+	};
+	const additionalFields = this.getNodeParameter('visionAdditionalFields', itemIndex, {}) as IDataObject;
+
+	const content: IDataObject[] = [];
+
+	if (!imagesParam?.imageValues || imagesParam.imageValues.length === 0) {
+		throw new NodeOperationError(this.getNode(), 'At least one image must be provided for vision analysis');
+	}
+
+	for (const imageConfig of imagesParam.imageValues) {
+		const { imageSource, detail = 'auto' } = imageConfig;
+		let imageUrl = '';
+
+		if (imageSource === 'url') {
+			imageUrl = imageConfig.imageUrl;
+			if (!imageUrl) {
+				throw new NodeOperationError(this.getNode(), 'Image URL is required when using URL source');
+			}
+		} else if (imageSource === 'base64') {
+			const base64Data = imageConfig.base64Data;
+			if (!base64Data) {
+				throw new NodeOperationError(this.getNode(), 'Base64 data is required when using base64 source');
+			}
+			let cleanedBase64 = base64Data.trim();
+			if (cleanedBase64.startsWith('data:')) {
+				const base64Index = cleanedBase64.indexOf('base64,');
+				if (base64Index !== -1) cleanedBase64 = cleanedBase64.substring(base64Index + 7);
+			}
+			cleanedBase64 = cleanedBase64.replace(/\s/g, '');
+			if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleanedBase64)) {
+				throw new NodeOperationError(this.getNode(), 'Invalid base64 data format');
+			}
+			const imageFormat = imageConfig.imageFormat || 'auto';
+			let mimeType = 'image/jpeg';
+			if (imageFormat === 'png') mimeType = 'image/png';
+			else if (imageFormat === 'webp') mimeType = 'image/webp';
+			else if (imageFormat === 'gif') mimeType = 'image/gif';
+			imageUrl = `data:${mimeType};base64,${cleanedBase64}`;
+		} else {
+			// binary
+			const binaryProperty = imageConfig.binaryProperty || 'data';
+			const binaryData = items[itemIndex].binary?.[binaryProperty];
+			if (!binaryData) {
+				throw new NodeOperationError(
+					this.getNode(),
+					`No binary data found in property "${binaryProperty}". Available properties: ${Object.keys(
+						items[itemIndex].binary || {},
+					).join(', ')}`,
+				);
+			}
+			const imageFormat = imageConfig.imageFormat || 'auto';
+			let mimeType = binaryData.mimeType || 'image/jpeg';
+			if (mimeType.includes('jpeg') || mimeType.includes('jpg')) mimeType = 'image/jpeg';
+			else if (mimeType.includes('png')) mimeType = 'image/png';
+			else if (mimeType.includes('webp')) mimeType = 'image/webp';
+			else if (mimeType.includes('gif')) mimeType = 'image/gif';
+			else mimeType = 'image/jpeg';
+			if (imageFormat !== 'auto') mimeType = `image/${imageFormat}`;
+
+			const base64Data = binaryData.data;
+			if (!base64Data) {
+				throw new NodeOperationError(this.getNode(), 'Binary data does not contain valid image data');
+			}
+			const cleaned = base64Data.replace(/\s/g, '');
+			if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) {
+				throw new NodeOperationError(this.getNode(), 'Invalid base64 data format in binary property');
+			}
+			imageUrl = `data:${mimeType};base64,${cleaned}`;
+		}
+
+		const imageContent: IDataObject = {
+			type: 'image_url',
+			image_url: { url: imageUrl } as IDataObject,
+		};
+		if (detail === 'high' || detail === 'low') {
+			(imageContent.image_url as IDataObject).detail = detail;
+		}
+		content.push(imageContent);
+	}
+
+	content.push({ type: 'text', text: prompt });
+
+	const requestBody: IDataObject = {
+		model,
+		messages: [{ role: 'user', content }],
+	};
+
+	if (additionalFields.max_tokens !== undefined) requestBody.max_tokens = additionalFields.max_tokens;
+	if (additionalFields.temperature !== undefined) requestBody.temperature = additionalFields.temperature;
+	if (additionalFields.top_p !== undefined) requestBody.top_p = additionalFields.top_p;
+	if (additionalFields.stream !== undefined) requestBody.stream = additionalFields.stream;
+
+	const responseData = await siliconflowRequest.call(this, '/chat/completions', requestBody);
+	const choice = (responseData as any).choices?.[0];
+	if (!choice) {
+		throw new NodeOperationError(this.getNode(), 'No response received from the vision model');
+	}
+
+	return {
+		analysis: choice.message?.content || '',
+		model: (responseData as any).model,
+		finishReason: choice.finish_reason,
+		usage: (responseData as any).usage,
+		imageCount: imagesParam.imageValues.length,
+		prompt,
+		_rawResponse: responseData,
+	} as IDataObject;
+}
+
+// ----------------------------------------------------------------
+// Embeddings
+// ----------------------------------------------------------------
+async function handleEmbeddings(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
+	const model = this.getNodeParameter('embeddingModel', itemIndex) as string;
+	const inputRaw = this.getNodeParameter('input', itemIndex) as unknown;
+	const additionalFields = this.getNodeParameter('embeddingAdditionalFields', itemIndex, {}) as IDataObject;
+
+	// input may be a plain string or a JSON array of strings
 	let input: string | string[];
 	if (typeof inputRaw === 'string') {
 		const trimmed = inputRaw.trim();
 		if (trimmed.startsWith('[')) {
 			try {
 				const parsed = JSON.parse(trimmed);
-				if (Array.isArray(parsed)) {
-					input = parsed as string[];
-				} else {
-					input = trimmed;
-				}
+				input = Array.isArray(parsed) ? (parsed as string[]) : trimmed;
 			} catch {
 				input = trimmed;
 			}
@@ -609,135 +1005,96 @@ async function handleEmbedding(ctx: IExecuteFunctions, itemIndex: number): Promi
 		input = String(inputRaw);
 	}
 
-	const body: IDataObject = { model, input };
-	if (additionalOptions.encoding_format) {
-		body.encoding_format = additionalOptions.encoding_format;
+	const requestBody: IDataObject = { model, input };
+	if (additionalFields.encoding_format) {
+		requestBody.encoding_format = additionalFields.encoding_format;
 	}
 
-	const requestOptions: IHttpRequestOptions = {
-		method: 'POST',
-		url: '/embeddings',
-		body,
-		json: true,
-	};
-
-	return (await ctx.helpers.httpRequestWithAuthentication.call(
-		ctx,
-		'siliconFlowApi',
-		requestOptions,
-	)) as IDataObject;
+	const responseData = await siliconflowRequest.call(this, '/embeddings', requestBody);
+	return {
+		embeddings: (responseData as any).data?.map((item: any) => item.embedding) || [],
+		model: (responseData as any).model,
+		usage: (responseData as any).usage,
+		_rawResponse: responseData,
+	} as IDataObject;
 }
 
-/**
- * Image Generation 处理函数
- */
-async function handleImage(ctx: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = ctx.getNodeParameter('model', itemIndex) as string;
-	const prompt = ctx.getNodeParameter('prompt', itemIndex) as string;
-	const additionalOptions = ctx.getNodeParameter(
-		'additionalOptions',
-		itemIndex,
-		{},
-	) as IDataObject;
+// ----------------------------------------------------------------
+// Image Generation
+// ----------------------------------------------------------------
+async function handleImage(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
+	const model = this.getNodeParameter('imageModel', itemIndex) as string;
+	const prompt = this.getNodeParameter('imagePrompt', itemIndex) as string;
+	const additionalFields = this.getNodeParameter('imageAdditionalFields', itemIndex, {}) as IDataObject;
 
-	const body: IDataObject = {
+	const requestBody: IDataObject = {
 		model,
 		prompt,
-		image_size: additionalOptions.image_size ?? '1024x1024',
-		batch_size: additionalOptions.batch_size ?? 1,
+		image_size: additionalFields.image_size ?? '1024x1024',
+		batch_size: additionalFields.batch_size ?? 1,
 	};
 
-	if (additionalOptions.negative_prompt) {
-		body.negative_prompt = additionalOptions.negative_prompt;
+	if (additionalFields.negative_prompt) {
+		requestBody.negative_prompt = additionalFields.negative_prompt;
 	}
-	if (typeof additionalOptions.seed === 'number' && additionalOptions.seed !== 0) {
-		body.seed = additionalOptions.seed;
+	if (typeof additionalFields.seed === 'number' && additionalFields.seed !== 0) {
+		requestBody.seed = additionalFields.seed;
 	}
-	if (typeof additionalOptions.guidance_scale === 'number') {
-		body.guidance_scale = additionalOptions.guidance_scale;
+	if (typeof additionalFields.guidance_scale === 'number') {
+		requestBody.guidance_scale = additionalFields.guidance_scale;
 	}
-	if (typeof additionalOptions.num_inference_steps === 'number') {
-		body.num_inference_steps = additionalOptions.num_inference_steps;
+	if (typeof additionalFields.num_inference_steps === 'number') {
+		requestBody.num_inference_steps = additionalFields.num_inference_steps;
 	}
 
-	const requestOptions: IHttpRequestOptions = {
-		method: 'POST',
-		url: '/images/generations',
-		body,
-		json: true,
-	};
-
-	return (await ctx.helpers.httpRequestWithAuthentication.call(
-		ctx,
-		'siliconFlowApi',
-		requestOptions,
-	)) as IDataObject;
+	const responseData = await siliconflowRequest.call(this, '/images/generations', requestBody);
+	return {
+		images: (responseData as any).images || [],
+		model,
+		_rawResponse: responseData,
+	} as IDataObject;
 }
 
-/**
- * Rerank 处理函数
- */
-async function handleRerank(ctx: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = ctx.getNodeParameter('model', itemIndex) as string;
-	const query = ctx.getNodeParameter('query', itemIndex) as string;
-	const documentsRaw = ctx.getNodeParameter('documents', itemIndex) as unknown;
-	const additionalOptions = ctx.getNodeParameter(
-		'additionalOptions',
-		itemIndex,
-		{},
-	) as IDataObject;
+// ----------------------------------------------------------------
+// Rerank
+// ----------------------------------------------------------------
+async function handleRerank(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
+	const model = this.getNodeParameter('rerankModel', itemIndex) as string;
+	const query = this.getNodeParameter('query', itemIndex) as string;
+	const documentsParam = this.getNodeParameter('documents', itemIndex) as string;
+	const additionalFields = this.getNodeParameter('rerankAdditionalFields', itemIndex, {}) as IDataObject;
 
-	// documents: 接受字符串数组或 {text:string} 数组
-	let documents: Array<string | IDataObject>;
-	if (typeof documentsRaw === 'string') {
-		const trimmed = documentsRaw.trim();
-		try {
-			const parsed = JSON.parse(trimmed);
-			if (Array.isArray(parsed)) {
-				documents = parsed as Array<string | IDataObject>;
-			} else {
-				throw new NodeOperationError(ctx.getNode(), 'Documents 字段必须为 JSON 数组', {
-					itemIndex,
-				});
-			}
-		} catch (err) {
-			throw new NodeOperationError(
-				ctx.getNode(),
-				`Documents 字段不是合法的 JSON: ${(err as Error).message}`,
-				{ itemIndex },
-			);
-		}
-	} else if (Array.isArray(documentsRaw)) {
-		documents = documentsRaw as Array<string | IDataObject>;
+	let documents: string[];
+	if (documentsParam.includes('\n')) {
+		documents = documentsParam
+			.split('\n')
+			.map((doc) => doc.trim())
+			.filter((doc) => doc);
 	} else {
-		throw new NodeOperationError(ctx.getNode(), 'Documents 字段类型不支持', { itemIndex });
+		documents = documentsParam
+			.split(',')
+			.map((doc) => doc.trim())
+			.filter((doc) => doc);
+	}
+	if (documents.length === 0) {
+		throw new NodeOperationError(this.getNode(), 'At least one document must be provided');
 	}
 
-	const body: IDataObject = {
-		model,
+	const requestBody: IDataObject = { model, query, documents };
+	if (additionalFields.top_n !== undefined) requestBody.top_n = additionalFields.top_n;
+	if (additionalFields.return_documents !== undefined)
+		requestBody.return_documents = additionalFields.return_documents;
+	if (additionalFields.max_chunks_per_doc !== undefined)
+		requestBody.max_chunks_per_doc = additionalFields.max_chunks_per_doc;
+	if (additionalFields.overlap_tokens !== undefined)
+		requestBody.overlap_tokens = additionalFields.overlap_tokens;
+
+	const responseData = await siliconflowRequest.call(this, '/rerank', requestBody);
+	return {
+		results: (responseData as any).results || [],
 		query,
-		documents,
-		top_n: additionalOptions.top_n ?? 5,
-		return_documents: additionalOptions.return_documents ?? true,
-	};
-
-	if (typeof additionalOptions.max_chunks_per_doc === 'number') {
-		body.max_chunks_per_doc = additionalOptions.max_chunks_per_doc;
-	}
-	if (typeof additionalOptions.overlap_tokens === 'number') {
-		body.overlap_tokens = additionalOptions.overlap_tokens;
-	}
-
-	const requestOptions: IHttpRequestOptions = {
-		method: 'POST',
-		url: '/rerank',
-		body,
-		json: true,
-	};
-
-	return (await ctx.helpers.httpRequestWithAuthentication.call(
-		ctx,
-		'siliconFlowApi',
-		requestOptions,
-	)) as IDataObject;
+		documentsCount: documents.length,
+		usage: (responseData as any).tokens,
+		_rawResponse: responseData,
+	} as IDataObject;
 }

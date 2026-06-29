@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-siliconflow-ai",
-  "version": "0.2.0",
-  "description": "n8n community node for SiliconFlow AI (SiliconFlow / 硅基流动). Zero-dependency, direct REST API client. Supports Chat Completion, Embedding, Image Generation and Rerank.",
+  "version": "0.3.0",
+  "description": "n8n community node for SiliconFlow (硅基流动). Zero runtime dependencies. Provides a SiliconFlow action node (Chat / Vision / Embeddings / Image / Rerank) and a LangChain-compatible Chat Model node for AI Agents. Installs cleanly without ERESOLVE langchain peer-dependency conflicts.",
   "keywords": [
     "n8n",
     "n8n-community-node-package",
@@ -10,9 +10,19 @@
     "硅基流动",
     "ai",
     "llm",
+    "chat-completion",
     "embedding",
     "image-generation",
-    "rerank"
+    "rerank",
+    "vision",
+    "vision-language-model",
+    "multimodal",
+    "qwen",
+    "glm",
+    "deepseek",
+    "ai-agent",
+    "tools-calling",
+    "function-calling"
   ],
   "license": "MIT",
   "author": {
@@ -44,12 +54,24 @@
   },
   "dependencies": {},
   "devDependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/openai": "^0.3.0",
     "@types/node": "^20.10.0",
     "n8n-workflow": "^1.0.0",
     "typescript": "^5.4.0"
   },
   "peerDependencies": {
-    "n8n-workflow": "^1.0.0"
+    "n8n-workflow": "^1.0.0",
+    "@langchain/core": "*",
+    "@langchain/openai": "*"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    },
+    "@langchain/openai": {
+      "optional": true
+    }
   },
   "n8n": {
     "n8nNodesApiVersion": 1,
@@ -57,7 +79,8 @@
       "dist/credentials/SiliconFlowApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/SiliconFlow/SiliconFlow.node.js"
+      "dist/nodes/SiliconFlow/SiliconFlow.node.js",
+      "dist/nodes/SiliconFlowChatModel/SiliconFlowChatModel.node.js"
     ]
   }
 }

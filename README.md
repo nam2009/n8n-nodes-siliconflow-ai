@@ -1,10 +1,15 @@
 # n8n-nodes-siliconflow-ai
 
-一个面向 [n8n](https://n8n.io) 的社区节点，封装 [SiliconFlow（硅基流动）](https://siliconflow.cn) 的 OpenAI 兼容 REST API：**Chat Completion**、**Embedding**、**Image Generation**、**Rerank**。
+一个面向 [n8n](https://n8n.io) 的社区节点，封装 [SiliconFlow（硅基流动）](https://siliconflow.cn) 的 OpenAI 兼容 REST API。提供**两个节点**：
 
-> 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因 `langchain` 与 `@langchain/core` 版本冲突（`ERESOLVE`）导致的安装失败问题。
+- **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank
+- **SiliconFlow Chat Model**（AI Agent 模型节点）：LangChain 兼容，可接入 n8n 的 AI Agent / Tools Agent / AI Chain
+
+> 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因把 `langchain@^0.3.29` 写进 `dependencies` 而与宿主 n8n 自带的 `@langchain/core@1.x` 产生 `ERESOLVE` 冲突、导致安装失败的问题。
 >
-> 本节点**零运行时三方依赖**（除 `n8n-workflow` 作为 peer dep），完全使用 n8n 内置 HTTP helper 直连 SiliconFlow，永不与宿主 n8n 冲突。
+> **依赖策略（关键）**：
+> - 动作节点 `SiliconFlow`：**零运行时三方依赖**，完全使用 n8n 内置 `httpRequestWithAuthentication` 直连 SiliconFlow，永不冲突。
+> - 模型节点 `SiliconFlowChatModel`：`@langchain/openai` / `@langchain/core` 仅声明为**可选 peerDependencies（`"*"`）**，不打包、不安装，运行时直接复用 n8n 自带的 langchain —— 既保留 AI Agent 能力，又彻底消除 `ERESOLVE`。
 
 ---
 
@@ -63,12 +68,19 @@ USER node
 
 ## ✨ 支持的能力
 
+### 节点 1：SiliconFlow（动作节点）
+
 | Resource | Operation | 端点 | 说明 |
 |---|---|---|---|
-| Chat Completion | Send Message | `POST /chat/completions` | 兼容 OpenAI 格式的对话 |
-| Embedding | Create Embeddings | `POST /embeddings` | 文本向量化 |
-| Image Generation | Generate | `POST /images/generations` | 文生图 |
-| Rerank | Rerank Documents | `POST /rerank` | 文档重排序（RAG 后处理） |
+| Chat | Complete | `POST /chat/completions` | 兼容 OpenAI 格式的对话，支持 thinking / tools 等参数 |
+| Vision | Analyze | `POST /chat/completions` | 多模态视觉理解（支持二进制/URL/base64 图片） |
+| Embeddings | Create | `POST /embeddings` | 文本向量化 |
+| Image | Generate | `POST /images/generations` | 文生图 |
+| Rerank | Create | `POST /rerank` | 文档重排序（RAG 后处理） |
+
+### 节点 2：SiliconFlow Chat Model（AI Agent 模型节点）
+
+输出 `AiLanguageModel` 连接，把 **SiliconFlow Chat Model** 节点连到 **AI Agent** / **Tools Agent** / **AI Chain** 即可让 Agent 使用 SiliconFlow 上的模型（含工具调用、推理模型 thinking 等）。底层复用 `@langchain/openai` 的 `ChatOpenAI` 指向 SiliconFlow base URL。
 
 ---
 
@@ -122,6 +134,18 @@ USER node
 
 输出 `images[0].url` 即图片 URL（部分模型返回 base64）。
 
+### 5. 用 AI Agent 调用 SiliconFlow 模型
+
+```
+[AI Agent] ←（Model）— [SiliconFlow Chat Model]
+        ↓
+   [其它 Tool 节点…]
+```
+
+- 把 **SiliconFlow Chat Model** 节点的输出连到 **AI Agent** 的 Model 输入
+- 在 Chat Model 节点选择模型（如 `deepseek-ai/DeepSeek-V3`、`Qwen/Qwen2.5-72B-Instruct`）
+- Agent 即可使用该模型进行工具调用 / 推理
+
 ---
 
 ## 🧪 常见模型参考
@@ -141,10 +165,12 @@ USER node
 
 | 项 | 原项目 | 本项目 |
 |---|---|---|
-| 运行时依赖 | `langchain` + `@langchain/core` + `axios` + `zod` | **零**（只用 n8n 内置 helper） |
+| `langchain` 声明位置 | `dependencies`（被 npm 安装 → 触发 `ERESOLVE`） | **可选 `peerDependencies`（`"*"`）**，不安装，运行时复用 n8n 自带版本 |
+| 动作节点运行时依赖 | `axios` + `zod` | **零**（用 n8n 内置 `httpRequestWithAuthentication`） |
 | 最新 n8n 安装 | ❌ `ERESOLVE` 报错 | ✅ 干净通过 |
-| 包大小 | ~50MB+ | < 50KB |
-| 维护难度 | 跟随 langchain 升级 | 跟随 SiliconFlow API 变更即可 |
+| AI Agent 模型节点 | ✅ 有 | ✅ 保留（同样接入 AI Agent） |
+| 包大小 | 较大（打包 langchain/axios） | 很小（不打包三方运行时依赖） |
+| 维护难度 | 跟随 langchain 升级易冲突 | 复用 n8n 自带 langchain，跟随 SiliconFlow API 变更即可 |
 
 ---
 
@@ -162,7 +188,7 @@ npm install
 npm run build
 
 # 监听模式（自动编译）
-npm run dev
+npm run build:watch
 ```
 
 修改源码后建议在本地 n8n 验证（见上文「方式 2：本地加载」）。
