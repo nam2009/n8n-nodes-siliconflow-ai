@@ -724,9 +724,14 @@ async function siliconflowRequest(
 	path: string,
 	body: IDataObject,
 ): Promise<IDataObject> {
+	// httpRequestWithAuthentication does NOT apply the node-level requestDefaults.baseURL,
+	// so we must build a fully-qualified URL from the credential's baseUrl ourselves.
+	// (The Authorization header IS injected automatically from the credential.)
+	const credentials = (await this.getCredentials('siliconFlowApi')) as { baseUrl?: string };
+	const baseUrl = (credentials.baseUrl || '').replace(/\/+$/, '');
 	const options: IHttpRequestOptions = {
 		method: 'POST',
-		url: path,
+		url: `${baseUrl}${path}`,
 		body,
 		json: true,
 		headers: { 'Content-Type': 'application/json' },
