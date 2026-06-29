@@ -2,6 +2,20 @@
 
 本项目 `n8n-nodes-siliconflow-ai` 是 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 的重写版本，保留相同功能的同时解决了在最新 n8n 上的 `ERESOLVE` 安装失败问题。
 
+## [0.6.0] — 2026-06-29
+
+### Added
+- SiliconFlow 动作节点新增 **Video 资源**（异步视频生成，支持 `Wan-AI/Wan2.2-T2V-A14B` 文生视频、`Wan-AI/Wan2.2-I2V-A14B` 图生视频），含三个操作：
+  - **Generate**：一键提交 → 轮询 `/video/status` 直到完成 → 下载视频为二进制。轮询间隔、超时（默认 600s）、是否下载均可配。超时后返回当前状态（不报错）。
+  - **Submit**：仅提交任务，立即返回 `requestId`，由用户自行用 Get Status 轮询。
+  - **Get Status**：用 `requestId` 查询任务状态（InQueue / InProgress / Succeed / Failed）与视频 URL。
+- I2V 模型校验：选 I2V 模型但未提供 image 会报错提示；T2V 模型误选图像来源时自动忽略、走文生视频。
+- 新增 `VIDEO_MODEL_IDS` 模型清单与 `isVideoI2VModel` 辅助函数（`nodes/shared/models.ts`）。
+- 视频生成结果 URL 有效期约 10 分钟 ~ 1 小时，Generate 操作默认下载为 `.mp4` 二进制，避免链接过期。
+
+### Notes
+- 视频生成耗时较长（数十秒到数分钟），Generate 操作会在节点执行期间阻塞等待；如需解耦，用 Submit + Get Status 拆分。
+
 ## [0.5.1] — 2026-06-29
 
 ### Added

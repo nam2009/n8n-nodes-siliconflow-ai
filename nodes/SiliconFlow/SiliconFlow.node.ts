@@ -15,9 +15,11 @@ import {
 	CHAT_MODEL_IDS,
 	EMBEDDING_MODEL_IDS,
 	IMAGE_MODEL_IDS,
+	isVideoI2VModel,
 	resolveModelId,
 	RERANK_MODEL_IDS,
 	TTS_MODEL_IDS,
+	VIDEO_MODEL_IDS,
 	VISION_MODEL_IDS,
 } from '../shared/models';
 
@@ -35,6 +37,7 @@ import {
  *   - Image Generation （POST /images/generations）
  *   - Rerank           （POST /rerank）
  *   - Audio            （POST /audio/speech 文生语音 · POST /audio/transcriptions 语音转写）
+ *   - Video            （POST /video/submit 提交 · POST /video/status 轮询状态，异步视频生成）
  */
 export class SiliconFlow implements INodeType {
 	description: INodeTypeDescription = {
@@ -44,7 +47,7 @@ export class SiliconFlow implements INodeType {
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-		description: 'Interact with SiliconFlow AI models (Chat / Vision / Embeddings / Image / Rerank / Audio)',
+		description: 'Interact with SiliconFlow AI models (Chat / Vision / Embeddings / Image / Rerank / Audio / Video)',
 		defaults: {
 			name: 'SiliconFlow',
 		},
@@ -80,6 +83,7 @@ export class SiliconFlow implements INodeType {
 					{ name: 'Image', value: 'image' },
 					{ name: 'Rerank', value: 'rerank' },
 					{ name: 'Audio', value: 'audio' },
+					{ name: 'Video', value: 'video' },
 				],
 				default: 'chat',
 			},
@@ -894,6 +898,189 @@ export class SiliconFlow implements INodeType {
 				description:
 					'File name passed to the API (used for format detection). Optional for binary source; recommended for URL/base64 sources.',
 			},
+
+			// ---------------- Video ----------------
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: { show: { resource: ['video'] } },
+				options: [
+					{
+						name: 'Generate',
+						value: 'generate',
+						description:
+							'Submit a video task, poll until done, then download the video (one-shot). Best for simple workflows.',
+						action: 'Generate a video',
+					},
+					{
+						name: 'Submit',
+						value: 'submit',
+						description: 'Submit a video task and return the requestId immediately (poll later with Get Status).',
+						action: 'Submit a video task',
+					},
+					{
+						name: 'Get Status',
+						value: 'status',
+						description: 'Query the status of a submitted video task by requestId.',
+						action: 'Get video task status',
+					},
+				],
+				default: 'generate',
+			},
+			// 模型选择：Generate / Submit 共用；Get Status 不需要模型。
+			...buildModelSelectionFields({
+				modeName: 'videoModelMode',
+				listName: 'videoModel',
+				idName: 'videoModelId',
+				ids: VIDEO_MODEL_IDS,
+				show: { resource: ['video'], operation: ['generate', 'submit'] },
+				defaultList: 'Wan-AI/Wan2.2-T2V-A14B',
+			}),
+			{
+				displayName: 'Prompt',
+				name: 'videoPrompt',
+				type: 'string',
+				displayOptions: { show: { resource: ['video'], operation: ['generate', 'submit'] } },
+				default: '',
+				required: true,
+				description: 'Text prompt describing the video to generate',
+				typeOptions: { rows: 3 },
+			},
+			{
+				displayName: 'Image Size',
+				name: 'videoImageSize',
+				type: 'options',
+				displayOptions: { show: { resource: ['video'], operation: ['generate', 'submit'] } },
+				options: [
+					{ name: '1280x720 (16:9)', value: '1280x720' },
+					{ name: '720x1280 (9:16)', value: '720x1280' },
+					{ name: '960x960 (1:1)', value: '960x960' },
+				],
+				default: '1280x720',
+				description: 'Output resolution',
+			},
+			// I2V 模型需要提供 image（图生视频）；T2V 无需。Generate / Submit 共用。
+			{
+				displayName: 'Image Source',
+				name: 'videoImageSource',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: { show: { resource: ['video'], operation: ['generate', 'submit'] } },
+				options: [
+					{ name: 'None (Text-to-Video)', value: 'none', description: 'No image — use a T2V model' },
+					{ name: 'Binary Data', value: 'binary', description: 'Use image binary data from a previous node (I2V)' },
+					{ name: 'URL', value: 'url', description: 'Use an image URL (I2V)' },
+					{ name: 'Base64', value: 'base64', description: 'Use base64 encoded image (I2V)' },
+				],
+				default: 'none',
+				description: 'Required for I2V models (e.g. Wan2.2-I2V-A14B); leave None for T2V models.',
+			},
+			{
+				displayName: 'Binary Property',
+				name: 'videoBinaryProperty',
+				type: 'string',
+				displayOptions: {
+					show: { resource: ['video'], operation: ['generate', 'submit'], videoImageSource: ['binary'] },
+				},
+				default: 'data',
+				description: 'Name of the binary property containing the source image',
+			},
+			{
+				displayName: 'Image URL',
+				name: 'videoImageUrl',
+				type: 'string',
+				displayOptions: {
+					show: { resource: ['video'], operation: ['generate', 'submit'], videoImageSource: ['url'] },
+				},
+				default: '',
+				placeholder: 'https://example.com/image.jpg',
+			},
+			{
+				displayName: 'Base64 Data',
+				name: 'videoImageBase64',
+				type: 'string',
+				displayOptions: {
+					show: { resource: ['video'], operation: ['generate', 'submit'], videoImageSource: ['base64'] },
+				},
+				default: '',
+				description: 'Base64 encoded image data (with or without data:image/...;base64, prefix)',
+				typeOptions: { rows: 4 },
+			},
+			{
+				displayName: 'Additional Fields',
+				name: 'videoAdditionalFields',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: { show: { resource: ['video'], operation: ['generate', 'submit'] } },
+				options: [
+					{
+						displayName: 'Negative Prompt',
+						name: 'negative_prompt',
+						type: 'string',
+						typeOptions: { rows: 2 },
+						default: '',
+					},
+					{
+						displayName: 'Seed',
+						name: 'seed',
+						type: 'number',
+						default: 0,
+						description: 'Random seed; 0 means random',
+					},
+				],
+			},
+
+			// ---- Video > Generate 轮询选项 ----
+			{
+				displayName: 'Polling',
+				name: 'videoPolling',
+				type: 'collection',
+				placeholder: 'Add Field',
+				default: {},
+				displayOptions: { show: { resource: ['video'], operation: ['generate'] } },
+				options: [
+					{
+						displayName: 'Poll Interval (seconds)',
+						name: 'interval',
+						type: 'number',
+						default: 10,
+						typeOptions: { minValue: 3 },
+						description: 'Seconds to wait between status checks',
+					},
+					{
+						displayName: 'Timeout (seconds)',
+						name: 'timeout',
+						type: 'number',
+						default: 600,
+						typeOptions: { minValue: 30 },
+						description:
+							'Maximum total seconds to wait. On timeout the node returns the current status instead of failing.',
+					},
+					{
+						displayName: 'Download Video',
+						name: 'download',
+						type: 'boolean',
+						default: true,
+						description:
+							'Download the finished video as binary output. The result URL is only valid ~10 min, so downloading is recommended.',
+					},
+				],
+			},
+
+			// ---- Video > Get Status：requestId 输入 ----
+			{
+				displayName: 'Request ID',
+				name: 'videoRequestId',
+				type: 'string',
+				displayOptions: { show: { resource: ['video'], operation: ['status'] } },
+				default: '',
+				required: true,
+				placeholder: 'returned by the Submit operation',
+				description: 'The requestId returned by the Submit operation',
+			},
 		],
 	};
 
@@ -921,6 +1108,10 @@ export class SiliconFlow implements INodeType {
 					const audioResult = await handleAudio.call(this, i);
 					outputData = audioResult.json;
 					outputBinary = audioResult.binary;
+				} else if (resource === 'video') {
+					const videoResult = await handleVideo.call(this, i);
+					outputData = videoResult.json;
+					outputBinary = videoResult.binary;
 				} else {
 					throw new NodeOperationError(this.getNode(), `Unknown resource: ${resource}`);
 				}
@@ -1479,6 +1670,286 @@ async function getAudioBuffer(
 	}
 	const name = customFileName || binaryData.fileName || 'audio.mp3';
 	return { buffer: buf, fileName: name };
+}
+
+// ----------------------------------------------------------------
+// Video (异步：submit → poll status → download)
+// ----------------------------------------------------------------
+async function handleVideo(this: IExecuteFunctions, itemIndex: number): Promise<AudioResult> {
+	const operation = this.getNodeParameter('operation', itemIndex, 'generate') as string;
+
+	if (operation === 'status') {
+		return handleVideoStatus.call(this, itemIndex);
+	}
+
+	// generate / submit：先提交任务
+	const { requestId, model, imageSize, imageProvided } = await handleVideoSubmit.call(this, itemIndex);
+
+	if (operation === 'submit') {
+		return {
+			json: {
+				requestId,
+				model,
+				imageSize,
+				imageProvided,
+				status: 'InQueue',
+				note: 'Poll /video/status with this requestId. Result URL is valid ~10 min after completion.',
+			},
+		};
+	}
+
+	// generate：轮询直到完成（或超时），可选下载视频
+	return handleVideoGenerate.call(this, itemIndex, requestId, model);
+}
+
+// ---- Video > Submit（POST /video/submit，返回 requestId） ----
+async function handleVideoSubmit(
+	this: IExecuteFunctions,
+	itemIndex: number,
+): Promise<{ requestId: string; model: string; imageSize: string; imageProvided: boolean }> {
+	const model = resolveModelId(this, itemIndex, 'videoModelMode', 'videoModel', 'videoModelId');
+	const prompt = (this.getNodeParameter('videoPrompt', itemIndex, '') as string).trim();
+	const imageSize = this.getNodeParameter('videoImageSize', itemIndex, '1280x720') as string;
+	const imageSource = this.getNodeParameter('videoImageSource', itemIndex, 'none') as string;
+	const additionalFields = this.getNodeParameter('videoAdditionalFields', itemIndex, {}) as IDataObject;
+
+	if (!prompt) {
+		throw new NodeOperationError(this.getNode(), 'Prompt is required for video generation');
+	}
+
+	const isI2V = isVideoI2VModel(model);
+	const image = await resolveVideoImage.call(this, itemIndex, imageSource, isI2V, model);
+	const imageProvided = !!image;
+
+	const requestBody: IDataObject = { model, prompt, image_size: imageSize };
+	if (image) {
+		requestBody.image = image;
+	}
+	if (additionalFields.negative_prompt) {
+		requestBody.negative_prompt = additionalFields.negative_prompt;
+	}
+	if (typeof additionalFields.seed === 'number' && additionalFields.seed !== 0) {
+		requestBody.seed = additionalFields.seed;
+	}
+
+	const responseData = await siliconflowRequest.call(this, '/video/submit', requestBody);
+	const requestId = (responseData as any).requestId;
+	if (!requestId) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`No requestId returned from /video/submit. Response: ${JSON.stringify(responseData)}`,
+		);
+	}
+	return { requestId, model, imageSize, imageProvided };
+}
+
+// ---- Video > Get Status（POST /video/status） ----
+async function handleVideoStatus(this: IExecuteFunctions, itemIndex: number): Promise<AudioResult> {
+	const requestId = (this.getNodeParameter('videoRequestId', itemIndex, '') as string).trim();
+	if (!requestId) {
+		throw new NodeOperationError(this.getNode(), 'Request ID is required for Get Status');
+	}
+	const statusResponse = await queryVideoStatus.call(this, requestId);
+	return { json: buildStatusOutput(requestId, statusResponse) };
+}
+
+// ---- Video > Generate（submit → 轮询 → 下载） ----
+async function handleVideoGenerate(
+	this: IExecuteFunctions,
+	itemIndex: number,
+	requestId: string,
+	model: string,
+): Promise<AudioResult> {
+	const polling = this.getNodeParameter('videoPolling', itemIndex, {}) as {
+		interval?: number;
+		timeout?: number;
+		download?: boolean;
+	};
+	const intervalSec = Math.max(3, polling.interval ?? 10);
+	const timeoutSec = Math.max(30, polling.timeout ?? 600);
+	const shouldDownload = polling.download !== false; // 默认下载
+
+	const deadline = Date.now() + timeoutSec * 1000;
+	let lastStatus: IDataObject;
+
+	for (;;) {
+		lastStatus = await queryVideoStatus.call(this, requestId);
+		const status = (lastStatus as any).status as string;
+
+		if (status === 'Succeed') {
+			const videoUrl = (lastStatus as any).results?.videos?.[0]?.url as string | undefined;
+			const json: IDataObject = {
+				requestId,
+				model,
+				status: 'Succeed',
+				videoUrl: videoUrl ?? null,
+				seed: (lastStatus as any).results?.seed ?? null,
+				inference: (lastStatus as any).results?.timings?.inference ?? null,
+				note: 'The video URL is valid for ~1 hour. Download it promptly.',
+			};
+
+			if (shouldDownload && videoUrl) {
+				try {
+					const buffer = await downloadBinary.call(this, videoUrl);
+					const binary = await this.helpers.prepareBinaryData(buffer, 'video.mp4', 'video/mp4');
+					return { json, binary };
+				} catch (err) {
+					// 下载失败不致命：返回 URL，用户可自行下载。
+					(json as any).downloadError = (err as Error).message;
+					return { json };
+				}
+			}
+			return { json };
+		}
+
+		if (status === 'Failed') {
+			return {
+				json: {
+					requestId,
+					model,
+					status: 'Failed',
+					reason: (lastStatus as any).reason ?? 'Unknown failure',
+				},
+			};
+		}
+
+		// InQueue / InProgress：检查超时
+		if (Date.now() >= deadline) {
+			return {
+				json: {
+					requestId,
+					model,
+					status: (lastStatus as any).status ?? 'InProgress',
+					timedOut: true,
+					note: `Polling timed out after ${timeoutSec}s. Re-run Get Status with this requestId later.`,
+				},
+			};
+		}
+
+		await sleep(intervalSec * 1000);
+	}
+}
+
+// 查询任务状态（POST /video/status，JSON 来回，复用 siliconflowRequest）。
+async function queryVideoStatus(this: IExecuteFunctions, requestId: string): Promise<IDataObject> {
+	return siliconflowRequest.call(this, '/video/status', { requestId });
+}
+
+// 把 /video/status 响应整理成节点输出。
+function buildStatusOutput(requestId: string, response: IDataObject): IDataObject {
+	const status = (response as any).status as string;
+	const out: IDataObject = { requestId, status };
+	if (status === 'Succeed') {
+		out.videoUrl = (response as any).results?.videos?.[0]?.url ?? null;
+		out.seed = (response as any).results?.seed ?? null;
+		out.inference = (response as any).results?.timings?.inference ?? null;
+		out.note = 'The video URL is valid for ~1 hour. Download it promptly.';
+	} else if (status === 'Failed') {
+		out.reason = (response as any).reason ?? 'Unknown failure';
+	}
+	return out;
+}
+
+// 解析视频生成的 image 字段（I2V 必填）。
+// 返回可直接放入请求体的字符串：URL 原样、binary/base64 转 data URI；T2V 或选 None 返回空。
+async function resolveVideoImage(
+	this: IExecuteFunctions,
+	itemIndex: number,
+	source: string,
+	isI2V: boolean,
+	model: string,
+): Promise<string> {
+	if (source === 'none') {
+		if (isI2V) {
+			throw new NodeOperationError(
+				this.getNode(),
+				`Model "${model}" is an Image-to-Video (I2V) model and requires an image. Select an Image Source.`,
+			);
+		}
+		return '';
+	}
+
+	// I2V 才需要 image；T2V 若误选了图像来源，仅警告并忽略，仍走文生视频。
+	if (!isI2V) {
+		// 不报错：忽略 image，正常提交 T2V。
+		return '';
+	}
+
+	const items = this.getInputData();
+
+	if (source === 'url') {
+		const url = (this.getNodeParameter('videoImageUrl', itemIndex, '') as string).trim();
+		if (!url) {
+			throw new NodeOperationError(this.getNode(), 'Image URL is required when using URL source');
+		}
+		return url;
+	}
+
+	if (source === 'base64') {
+		const raw = (this.getNodeParameter('videoImageBase64', itemIndex, '') as string).trim();
+		if (!raw) {
+			throw new NodeOperationError(this.getNode(), 'Base64 data is required when using base64 source');
+		}
+		if (raw.startsWith('data:')) {
+			return raw; // 已是 data URI
+		}
+		const cleaned = raw.replace(/\s/g, '');
+		if (!/^[A-Za-z0-9+/]*={0,2}$/.test(cleaned)) {
+			throw new NodeOperationError(this.getNode(), 'Invalid base64 image data');
+		}
+		return `data:image/jpeg;base64,${cleaned}`;
+	}
+
+	// binary — 读取真实字节，转 data URI（内存/磁盘二进制模式均适用）。
+	const binaryProperty =
+		(this.getNodeParameter('videoBinaryProperty', itemIndex, 'data') as string).trim() || 'data';
+	const binaryData = items[itemIndex].binary?.[binaryProperty];
+	if (!binaryData) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`No binary data found in property "${binaryProperty}". Available properties: ${Object.keys(
+				items[itemIndex].binary || {},
+			).join(', ')}`,
+		);
+	}
+	let mimeType = binaryData.mimeType || 'image/jpeg';
+	if (mimeType.includes('png')) mimeType = 'image/png';
+	else if (mimeType.includes('webp')) mimeType = 'image/webp';
+	else if (mimeType.includes('gif')) mimeType = 'image/gif';
+	else mimeType = 'image/jpeg';
+
+	let buffer: Buffer;
+	try {
+		buffer = await this.helpers.getBinaryDataBuffer(itemIndex, binaryProperty);
+	} catch (err) {
+		throw new NodeOperationError(
+			this.getNode(),
+			`Could not read binary data from property "${binaryProperty}": ${(err as Error).message}`,
+		);
+	}
+	if (!buffer || buffer.length === 0) {
+		throw new NodeOperationError(this.getNode(), `Binary property "${binaryProperty}" is empty`);
+	}
+	return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+// 下载任意 URL 的二进制（不附加凭证）。用于下载生成的视频。
+async function downloadBinary(this: IExecuteFunctions, url: string): Promise<Buffer> {
+	const options: IHttpRequestOptions = {
+		method: 'GET',
+		url,
+		encoding: 'arraybuffer',
+	};
+	const buf = toBuffer(await this.helpers.httpRequest.call(this, options));
+	if (buf.length === 0) {
+		throw new Error('Downloaded file was empty');
+	}
+	return buf;
+}
+
+// 同步等待若干毫秒（用于轮询间隔）。
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ----------------------------------------------------------------

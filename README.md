@@ -4,10 +4,10 @@
 
 一个面向 [n8n](https://n8n.io) 的社区节点，封装 [SiliconFlow（硅基流动）](https://siliconflow.cn) 的 OpenAI 兼容 REST API。提供**两个节点**：
 
-- **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank / Audio（TTS 文生语音 + ASR 语音转写）
+- **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank / Audio（TTS 文生语音 + ASR 语音转写）/ Video（视频生成）
 - **SiliconFlow Chat Model**（AI Agent 模型节点）：LangChain 兼容，可接入 n8n 的 AI Agent / Tools Agent / AI Chain
 
-> 📌 当前版本 **0.5.1** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
+> 📌 当前版本 **0.6.0** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
 
 > 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因把 `langchain@^0.3.29` 写进 `dependencies` 而与宿主 n8n 自带的 `@langchain/core@1.x` 产生 `ERESOLVE` 冲突、导致安装失败的问题。
 >
@@ -83,6 +83,9 @@ USER node
 | Rerank | Create | `POST /rerank` | 文档重排序（RAG 后处理） |
 | Audio | Generate Speech | `POST /audio/speech` | 文生语音（TTS），输出二进制音频（mp3/wav/opus/pcm） |
 | Audio | Transcribe | `POST /audio/transcriptions` | 语音转写（ASR），上传音频返回文本 |
+| Video | Generate | `POST /video/submit` + `/video/status` | 一键生成：提交→轮询→下载视频 |
+| Video | Submit | `POST /video/submit` | 仅提交任务，返回 requestId |
+| Video | Get Status | `POST /video/status` | 用 requestId 查询视频任务状态 |
 
 ### 节点 2：SiliconFlow Chat Model（AI Agent 模型节点）
 
@@ -92,7 +95,7 @@ USER node
 
 ## 🧩 模型选择：From List / By ID
 
-每个资源（Chat / Vision / Embeddings / Image / Rerank / Audio）以及 Chat Model 节点的模型选择都支持两种模式（顶部 **Model Selection** 切换）：
+每个资源（Chat / Vision / Embeddings / Image / Rerank / Audio / Video）以及 Chat Model 节点的模型选择都支持两种模式（顶部 **Model Selection** 切换）：
 
 | 模式 | 说明 |
 |---|---|
@@ -110,6 +113,7 @@ USER node
 - **Rerank（6）**：Qwen3-Reranker 系列、bge-reranker-v2-m3(+Pro) 等
 - **Audio TTS（2）**：CosyVoice2-0.5B、MOSS-TTSD-v0.5（文生语音）
 - **Audio ASR（2）**：SenseVoiceSmall、TeleSpeechASR（语音转写）
+- **Video（2）**：Wan2.2-T2V-A14B（文生视频）、Wan2.2-I2V-A14B（图生视频）
 
 清单源码位于 `nodes/shared/models.ts`，可直接增删维护。
 
@@ -204,6 +208,34 @@ USER node
 
 输出 `text` 字段为转写文本。
 
+### 8. 视频生成（一键 Generate）
+
+```
+[Manual Trigger] → [SiliconFlow (Video: Generate)] → [Write File]
+```
+
+- Resource: `Video`，Operation: `Generate`
+- Model: `Wan-AI/Wan2.2-T2V-A14B`（文生视频）或 `Wan-AI/Wan2.2-I2V-A14B`（图生视频）
+- Prompt: `a cat playing in a garden, cinematic`
+- Image Size: `1280x720` / `720x1280` / `960x960`
+- Image Source: `None`（T2V）；I2V 时选 `Binary Data` / `URL` / `Base64` 提供首帧图
+- Polling → Poll Interval: `10`s，Timeout: `600`s，Download Video: ✅（默认下载为 `.mp4` 二进制）
+
+节点会**自动提交→轮询直到完成→下载视频**，视频以二进制属性 `data` 输出（可接 Write File）。JSON 部分含 `requestId`、`status`、`videoUrl`、`seed`、`inference`。视频 URL 有效期约 1 小时，建议开启下载。超时则返回当前状态（不报错），稍后可用 Get Status 续查。
+
+### 9. 视频生成（Submit + Get Status 解耦，适合长任务）
+
+```
+[SiliconFlow (Video: Submit)] → 返回 requestId
+        ↓（用 Wait / 定时器隔开）
+[SiliconFlow (Video: Get Status)] → 轮询 status 直到 Succeed
+```
+
+- **Submit**：仅提交，立即返回 `requestId`（不阻塞）。
+- **Get Status**：Request ID 填 Submit 返回的 `requestId`，返回 `status`（InQueue / InProgress / Succeed / Failed）；`Succeed` 时含 `videoUrl`。可配合 n8n 的 Wait / Loop 节点自行控制轮询节奏。
+
+> 视频结果有效期约 10 分钟（submit 端）~ 1 小时（URL），完成后请尽快下载。
+
 ---
 
 ## 🧪 常见模型参考
@@ -216,6 +248,7 @@ USER node
 | Rerank | `BAAI/bge-reranker-v2-m3` |
 | 语音合成（TTS） | `FunAudioLLM/CosyVoice2-0.5B`、`fnlp/MOSS-TTSD-v0.5` |
 | 语音转写（ASR） | `FunAudioLLM/SenseVoiceSmall`、`TeleAI/TeleSpeechASR` |
+| 视频生成 | `Wan-AI/Wan2.2-T2V-A14B`（文生视频）、`Wan-AI/Wan2.2-I2V-A14B`（图生视频） |
 
 完整列表见 [SiliconFlow 模型广场](https://siliconflow.cn/models)。
 
@@ -264,6 +297,8 @@ npm run build:watch
 - [SiliconFlow Rerank](https://docs.siliconflow.cn/cn/api-reference/rerank/rerank)
 - [SiliconFlow 语音合成 TTS](https://api-docs.siliconflow.cn/docs/api/audio-speech-post)
 - [SiliconFlow 语音转写 ASR](https://api-docs.siliconflow.cn/docs/api/audio-transcriptions-post)
+- [SiliconFlow 视频生成提交](https://api-docs.siliconflow.cn/docs/api/video-submit-post)
+- [SiliconFlow 视频生成状态](https://api-docs.siliconflow.cn/docs/api/video-status-post)
 - [n8n 社区节点开发指南](https://docs.n8n.io/integrations/community-nodes/building-community-nodes/)
 
 ---
@@ -272,6 +307,7 @@ npm run build:watch
 
 详见 [CHANGELOG.md](./CHANGELOG.md)。简要回顾：
 
+- **0.6.0** — 新增 Video 资源：视频生成（Generate 一键 / Submit / Get Status），支持 Wan2.2 T2V + I2V
 - **0.5.1** — TTS 音色新增选择列表（8 个预置音色，三种模式：列表/自定义/不指定）
 - **0.5.0** — 新增 Audio 资源：Generate Speech（TTS 文生语音）+ Transcribe（ASR 语音转写）
 - **0.4.2** — 修复 Vision 节点在 filesystem 二进制模式下用 Binary Data 分析图片报错

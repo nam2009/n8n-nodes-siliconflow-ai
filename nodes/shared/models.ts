@@ -114,6 +114,21 @@ export const ASR_MODEL_IDS: string[] = [
 	'TeleAI/TeleSpeechASR',
 ];
 
+// ----------------------------------------------------------------
+// Video（视频生成）模型 —— SiliconFlow 节点 Video 资源
+// 异步 API：POST /video/submit 提交 → POST /video/status 轮询 → 下载视频。
+// I2V 需要提供 image（图生视频）；T2V 仅文本（文生视频）。
+// ----------------------------------------------------------------
+export const VIDEO_MODEL_IDS: string[] = [
+	'Wan-AI/Wan2.2-T2V-A14B',
+	'Wan-AI/Wan2.2-I2V-A14B',
+];
+
+/** 判断视频模型是否为图生视频（I2V），需提供 image。 */
+export function isVideoI2VModel(modelId: string): boolean {
+	return /i2v/i.test(modelId);
+}
+
 /** 把 ID 数组转成 n8n options（显示名 = ID，值 = ID，所见即所发）。 */
 function toOptions(ids: string[]) {
 	return ids.map((id) => ({ name: id, value: id }));
