@@ -7,7 +7,7 @@
 - **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank / Audio（TTS 文生语音 + ASR 语音转写）
 - **SiliconFlow Chat Model**（AI Agent 模型节点）：LangChain 兼容，可接入 n8n 的 AI Agent / Tools Agent / AI Chain
 
-> 📌 当前版本 **0.5.0** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
+> 📌 当前版本 **0.5.1** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
 
 > 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因把 `langchain@^0.3.29` 写进 `dependencies` 而与宿主 n8n 自带的 `@langchain/core@1.x` 产生 `ERESOLVE` 冲突、导致安装失败的问题。
 >
@@ -186,7 +186,7 @@ USER node
 - Resource: `Audio`，Operation: `Generate Speech`
 - Model: `FunAudioLLM/CosyVoice2-0.5B`（或 `fnlp/MOSS-TTSD-v0.5`）
 - Text: 要合成的文本（MOSS-TTSD 可用 `[S1]`/`[S2]` 标记多人对话；CosyVoice2 支持 `[laughter]`、`[breath]` 等标记）
-- Voice: `FunAudioLLM/CosyVoice2-0.5B:alex`（格式 `{model}:{voice}`，留空用默认音色）
+- Voice: 选择 **Select From List** 从预置音色（alex / anna / bella / benjamin / charles / david / diana / claire）中选，自动拼接为 `FunAudioLLM/CosyVoice2-0.5B:alex`；也可切到 **Custom** 手填完整音色 ID，或 **None** 用模型默认
 - Additional Fields → Output Format: `mp3`，Speed: `1`，Sample Rate: `32000`
 
 合成结果以**二进制属性 `data`** 输出，可直接用 **Write File** / **Read/Write Files from Disk** 节点写入 `.mp3`。JSON 部分含 `model`、`voice`、`format`、`size`、`input`。
@@ -272,6 +272,7 @@ npm run build:watch
 
 详见 [CHANGELOG.md](./CHANGELOG.md)。简要回顾：
 
+- **0.5.1** — TTS 音色新增选择列表（8 个预置音色，三种模式：列表/自定义/不指定）
 - **0.5.0** — 新增 Audio 资源：Generate Speech（TTS 文生语音）+ Transcribe（ASR 语音转写）
 - **0.4.2** — 修复 Vision 节点在 filesystem 二进制模式下用 Binary Data 分析图片报错
 - **0.4.1** — 修复 SiliconFlow 动作节点运行报 `Invalid URL`

@@ -2,6 +2,14 @@
 
 本项目 `n8n-nodes-siliconflow-ai` 是 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 的重写版本，保留相同功能的同时解决了在最新 n8n 上的 `ERESOLVE` 安装失败问题。
 
+## [0.5.1] — 2026-06-29
+
+### Added
+- **TTS 音色选择列表**：Generate Speech 的 Voice 改为三种模式
+  - **Select From List**：从 8 个 SiliconFlow 预置音色（alex / anna / bella / benjamin / charles / david / diana / claire）中选，自动按所选模型拼接为 `{model}:{voice}`，无需手填、无需上网站查音色。
+  - **Custom**：手动输入完整音色 ID（如 `FunAudioLLM/CosyVoice2-0.5B:alex`），支持表达式。音色前缀不必与所选模型一致。
+  - **None**：不指定音色，使用模型默认。
+
 ## [0.5.0] — 2026-06-29
 
 ### Added

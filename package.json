@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-siliconflow-ai",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "n8n community node for SiliconFlow (硅基流动). Zero runtime dependencies. Provides a SiliconFlow action node (Chat / Vision / Embeddings / Image / Rerank / Audio TTS+ASR) and a LangChain-compatible Chat Model node for AI Agents. Installs cleanly without ERESOLVE langchain peer-dependency conflicts.",
   "keywords": [
     "n8n",

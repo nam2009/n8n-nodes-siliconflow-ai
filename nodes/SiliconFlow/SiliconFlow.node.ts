@@ -725,13 +725,62 @@ export class SiliconFlow implements INodeType {
 			},
 			{
 				displayName: 'Voice',
-				name: 'ttsVoice',
-				type: 'string',
+				name: 'ttsVoiceMode',
+				type: 'options',
+				noDataExpression: true,
 				displayOptions: { show: { resource: ['audio'], operation: ['generate'] } },
-				default: '',
-				placeholder: 'e.g. FunAudioLLM/CosyVoice2-0.5B:alex',
+				options: [
+					{
+						name: 'Select From List',
+						value: 'list',
+						description: '从 SiliconFlow 预置音色中选择，自动按所选模型拼接为 {model}:{voice}',
+					},
+					{
+						name: 'Custom',
+						value: 'custom',
+						description: '手动输入完整音色 ID（如 FunAudioLLM/CosyVoice2-0.5B:alex），支持表达式',
+					},
+					{
+						name: 'None',
+						value: 'none',
+						description: '不指定音色，使用模型默认',
+					},
+				],
+				default: 'list',
+			},
+			{
+				displayName: 'Preset Voice',
+				name: 'ttsVoiceList',
+				type: 'options',
+				noDataExpression: true,
+				displayOptions: {
+					show: { resource: ['audio'], operation: ['generate'], ttsVoiceMode: ['list'] },
+				},
+				options: [
+					{ name: 'alex', value: 'alex' },
+					{ name: 'anna', value: 'anna' },
+					{ name: 'bella', value: 'bella' },
+					{ name: 'benjamin', value: 'benjamin' },
+					{ name: 'charles', value: 'charles' },
+					{ name: 'david', value: 'david' },
+					{ name: 'diana', value: 'diana' },
+					{ name: 'claire', value: 'claire' },
+				],
+				default: 'alex',
 				description:
-					'Preset voice ID in the form {model}:{voice} (e.g. FunAudioLLM/CosyVoice2-0.5B:alex). Leave empty to use the model default. Mutually exclusive with reference audio cloning.',
+					'SiliconFlow 预置音色。实际发送值为 {所选模型}:{音色}，例如选择模型 FunAudioLLM/CosyVoice2-0.5B + 音色 alex → FunAudioLLM/CosyVoice2-0.5B:alex。',
+			},
+			{
+				displayName: 'Custom Voice',
+				name: 'ttsVoiceCustom',
+				type: 'string',
+				displayOptions: {
+					show: { resource: ['audio'], operation: ['generate'], ttsVoiceMode: ['custom'] },
+				},
+				default: '',
+				placeholder: 'FunAudioLLM/CosyVoice2-0.5B:alex',
+				description:
+					'完整音色 ID，格式 {model}:{voice}。音色前缀不必与所选模型一致，均可使用。',
 			},
 			{
 				displayName: 'Additional Fields',
@@ -1271,16 +1320,26 @@ async function handleAudio(this: IExecuteFunctions, itemIndex: number): Promise<
 async function handleGenerateSpeech(this: IExecuteFunctions, itemIndex: number): Promise<AudioResult> {
 	const model = resolveModelId(this, itemIndex, 'ttsModelMode', 'ttsModel', 'ttsModelId');
 	const input = this.getNodeParameter('ttsInput', itemIndex) as string;
-	const voice = this.getNodeParameter('ttsVoice', itemIndex, '') as string;
 	const additionalFields = this.getNodeParameter('ttsAdditionalFields', itemIndex, {}) as IDataObject;
 
 	if (!input || !input.trim()) {
 		throw new NodeOperationError(this.getNode(), 'Text to synthesize is required');
 	}
 
+	// 音色解析：list → 用所选模型拼接 {model}:{voice}；custom → 直接用输入值；none → 不发送。
+	// 音色前缀不必与所选模型一致（API 均可使用），这里默认按所选模型拼接最直观。
+	const voiceMode = this.getNodeParameter('ttsVoiceMode', itemIndex, 'list') as string;
+	let voice = '';
+	if (voiceMode === 'list') {
+		const voiceName = this.getNodeParameter('ttsVoiceList', itemIndex, 'alex') as string;
+		voice = `${model}:${voiceName}`;
+	} else if (voiceMode === 'custom') {
+		voice = (this.getNodeParameter('ttsVoiceCustom', itemIndex, '') as string).trim();
+	}
+
 	const requestBody: IDataObject = { model, input };
-	if (voice && voice.trim()) {
-		requestBody.voice = voice.trim();
+	if (voice) {
+		requestBody.voice = voice;
 	}
 
 	const responseFormat = (additionalFields.response_format as string) ?? 'mp3';
@@ -1307,7 +1366,7 @@ async function handleGenerateSpeech(this: IExecuteFunctions, itemIndex: number):
 	return {
 		json: {
 			model,
-			voice: voice && voice.trim() ? voice.trim() : null,
+			voice: voice || null,
 			format: responseFormat,
 			size: buffer.length,
 			input,
