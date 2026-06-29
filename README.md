@@ -1,9 +1,13 @@
 # n8n-nodes-siliconflow-ai
 
+![npm version](https://img.shields.io/npm/v/n8n-nodes-siliconflow-ai) ![npm](https://img.shields.io/npm/dm/n8n-nodes-siliconflow-ai) ![license](https://img.shields.io/npm/l/n8n-nodes-siliconflow-ai)
+
 一个面向 [n8n](https://n8n.io) 的社区节点，封装 [SiliconFlow（硅基流动）](https://siliconflow.cn) 的 OpenAI 兼容 REST API。提供**两个节点**：
 
 - **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank
 - **SiliconFlow Chat Model**（AI Agent 模型节点）：LangChain 兼容，可接入 n8n 的 AI Agent / Tools Agent / AI Chain
+
+> 📌 当前版本 **0.4.2** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
 
 > 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因把 `langchain@^0.3.29` 写进 `dependencies` 而与宿主 n8n 自带的 `@langchain/core@1.x` 产生 `ERESOLVE` 冲突、导致安装失败的问题。
 >
@@ -229,6 +233,28 @@ npm run build:watch
 
 ---
 
+## 📝 更新记录
+
+详见 [CHANGELOG.md](./CHANGELOG.md)。简要回顾：
+
+- **0.4.2** — 修复 Vision 节点在 filesystem 二进制模式下用 Binary Data 分析图片报错
+- **0.4.1** — 修复 SiliconFlow 动作节点运行报 `Invalid URL`
+- **0.4.0** — 新增 From List / By ID 模型选择；全面更新模型清单
+- **0.3.0** — 解决 `ERESOLVE` 安装冲突；新增 AI Agent Chat Model 节点；新增 Image 资源
+
+---
+
+## 🙏 致谢
+
+本项目从 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 重写而来，在保留原项目功能的基础上解决了其在最新 n8n 上的 `ERESOLVE` 依赖冲突安装失败问题。
+
+衷心感谢原作者 **[QixYuanmeng](https://github.com/QixYuanmeng)** 的工作 —— 本项目的节点设计、参数结构与功能划分均参考自原项目。没有原项目的基础，就没有本项目。
+
+> 原项目地址：https://github.com/QixYuanmeng/n8n-nodes-siliconflow
+
+---
+
 ## 📄 License
 
 MIT
+
