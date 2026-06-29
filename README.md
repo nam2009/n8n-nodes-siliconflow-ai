@@ -7,7 +7,7 @@
 - **SiliconFlow**（动作节点）：Chat / Vision / Embeddings / Image Generation / Rerank
 - **SiliconFlow Chat Model**（AI Agent 模型节点）：LangChain 兼容，可接入 n8n 的 AI Agent / Tools Agent / AI Chain
 
-> 📌 当前版本 **0.4.2** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
+> 📌 当前版本 **0.4.3** · [查看完整更新记录](./CHANGELOG.md) · [致谢原项目](#-致谢)
 
 > 🎯 **核心目的**：解决 [QixYuanmeng/n8n-nodes-siliconflow](https://github.com/QixYuanmeng/n8n-nodes-siliconflow) 在最新 n8n 中因把 `langchain@^0.3.29` 写进 `dependencies` 而与宿主 n8n 自带的 `@langchain/core@1.x` 产生 `ERESOLVE` 冲突、导致安装失败的问题。
 >
