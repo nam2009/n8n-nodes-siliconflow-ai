@@ -7,6 +7,11 @@ import {
 	type ISupplyDataFunctions,
 	type SupplyData,
 } from 'n8n-workflow';
+import {
+	buildModelSelectionFields,
+	CHAT_MODEL_IDS,
+	resolveModelId,
+} from '../shared/models';
 
 /**
  * SiliconFlow Chat Model — LangChain-compatible chat model for n8n AI Agents.
@@ -75,52 +80,14 @@ export class SiliconFlowChatModel implements INodeType {
 				type: 'notice',
 				default: '',
 			},
-			{
-				displayName: 'Model',
-				name: 'model',
-				type: 'options',
-				description: 'The model which will generate the completion. All models support tools calling.',
-				typeOptions: {
-					loadOptions: {
-						routing: {
-							request: {
-								method: 'GET',
-								url: '/models?sub_type=chat',
-							},
-							output: {
-								postReceive: [
-									{
-										type: 'rootProperty',
-										properties: {
-											property: 'data',
-										},
-									},
-									{
-										type: 'setKeyValue',
-										properties: {
-											name: '={{$responseItem.id}}',
-											value: '={{$responseItem.id}}',
-										},
-									},
-									{
-										type: 'sort',
-										properties: {
-											key: 'name',
-										},
-									},
-								],
-							},
-						},
-					},
-				},
-				routing: {
-					send: {
-						type: 'body',
-						property: 'model',
-					},
-				},
-				default: 'THUDM/glm-4-plus',
-			},
+			...buildModelSelectionFields({
+				modeName: 'modelMode',
+				listName: 'model',
+				idName: 'modelId',
+				ids: CHAT_MODEL_IDS,
+				show: {},
+				defaultList: 'deepseek-ai/DeepSeek-V3.2',
+			}),
 			{
 				displayName: 'Options',
 				name: 'options',
@@ -268,7 +235,7 @@ export class SiliconFlowChatModel implements INodeType {
 
 	async supplyData(this: ISupplyDataFunctions, itemIndex: number): Promise<SupplyData> {
 		const credentials = await this.getCredentials<SiliconFlowCredential>('siliconFlowApi');
-		const modelName = this.getNodeParameter('model', itemIndex) as string;
+		const modelName = resolveModelId(this, itemIndex, 'modelMode', 'model', 'modelId');
 		const options = this.getNodeParameter('options', itemIndex, {}) as {
 			frequencyPenalty?: number;
 			maxTokens?: number;

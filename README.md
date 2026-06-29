@@ -84,6 +84,29 @@ USER node
 
 ---
 
+## 🧩 模型选择：From List / By ID
+
+每个资源（Chat / Vision / Embeddings / Image / Rerank）以及 Chat Model 节点的模型选择都支持两种模式（顶部 **Model Selection** 切换）：
+
+| 模式 | 说明 |
+|---|---|
+| **From List** | 从内置的常用模型清单里选（清单见下，已按 2026-06 模型广场整理） |
+| **By ID** | 手动输入任意模型 ID，**支持表达式**（如 `={{$json.model}}`）。用于清单未收录、或刚上线尚未更新的模型 |
+
+> SiliconFlow 模型会上下架，内置清单无法保证永远最新；遇到列表里没有的模型，直接切到 **By ID** 填入即可，无需等节点更新。
+
+内置清单（按你提供的模型广场整理）：
+
+- **Chat（21）**：GLM-5.2、Kimi-K2.7-Code、DeepSeek-V4-Pro/Flash、DeepSeek-V3.2(+Pro)、DeepSeek-R1、Nex-N2-Pro、MiniMax-M2.5(+Pro)、Qwen3.6/3.5 系列、Step-3.5-Flash、Ling-mini-2.0、Hunyuan-MT-7B、Seed-OSS-36B 等
+- **Vision（14）**：Qwen3-VL-32B、Qwen3-Omni 系列、GLM-4.5V、DeepSeek-OCR 等
+- **Embedding（8）**：Qwen3-Embedding 系列、bge-m3(+Pro)、bge-large-zh/en 等
+- **Image（7）**：Z-Image(+Turbo)、ERNIE-Image-Turbo、Qwen-Image(+Edit)、Kolors 等
+- **Rerank（6）**：Qwen3-Reranker 系列、bge-reranker-v2-m3(+Pro) 等
+
+清单源码位于 `nodes/shared/models.ts`，可直接增删维护。
+
+---
+
 ## 🚀 典型用法
 
 ### 1. 简易聊天工作流

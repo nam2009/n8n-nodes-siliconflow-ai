@@ -7,6 +7,15 @@ import {
 	INodeTypeDescription,
 	NodeOperationError,
 } from 'n8n-workflow';
+import {
+	buildModelSelectionFields,
+	CHAT_MODEL_IDS,
+	EMBEDDING_MODEL_IDS,
+	IMAGE_MODEL_IDS,
+	resolveModelId,
+	RERANK_MODEL_IDS,
+	VISION_MODEL_IDS,
+} from '../shared/models';
 
 /**
  * SiliconFlow（硅基流动）AI 节点
@@ -86,34 +95,14 @@ export class SiliconFlow implements INodeType {
 				],
 				default: 'complete',
 			},
-			{
-				displayName: 'Model',
-				name: 'model',
-				type: 'options',
-				displayOptions: { show: { resource: ['chat'], operation: ['complete'] } },
-				description: 'The model which will generate the completion. All models support tools calling.',
-				typeOptions: {
-					loadOptions: {
-						routing: {
-							request: { method: 'GET', url: '/models?sub_type=chat' },
-							output: {
-								postReceive: [
-									{ type: 'rootProperty', properties: { property: 'data' } },
-									{
-										type: 'setKeyValue',
-										properties: {
-											name: '={{$responseItem.id}}',
-											value: '={{$responseItem.id}}',
-										},
-									},
-									{ type: 'sort', properties: { key: 'name' } },
-								],
-							},
-						},
-					},
-				},
-				default: 'THUDM/glm-4-plus',
-			},
+			...buildModelSelectionFields({
+				modeName: 'modelMode',
+				listName: 'model',
+				idName: 'modelId',
+				ids: CHAT_MODEL_IDS,
+				show: { resource: ['chat'], operation: ['complete'] },
+				defaultList: 'deepseek-ai/DeepSeek-V3.2',
+			}),
 			{
 				displayName: 'Messages',
 				name: 'messages',
@@ -316,24 +305,14 @@ export class SiliconFlow implements INodeType {
 				],
 				default: 'analyze',
 			},
-			{
-				displayName: 'Model',
-				name: 'visionModel',
-				type: 'options',
-				displayOptions: { show: { resource: ['vision'], operation: ['analyze'] } },
-				options: [
-					{ name: 'Qwen2.5-VL-72B-Instruct (最强视觉理解)', value: 'Qwen/Qwen2.5-VL-72B-Instruct' },
-					{ name: 'Qwen2.5-VL-32B-Instruct (高性能)', value: 'Qwen/Qwen2.5-VL-32B-Instruct' },
-					{ name: 'QVQ-72B-Preview (视觉推理)', value: 'Qwen/QVQ-72B-Preview' },
-					{ name: 'Qwen2-VL-72B-Instruct', value: 'Qwen/Qwen2-VL-72B-Instruct' },
-					{ name: 'Qwen2-VL-7B-Instruct (Pro)', value: 'Pro/Qwen/Qwen2-VL-7B-Instruct' },
-					{ name: 'Qwen2.5-VL-7B-Instruct (Pro)', value: 'Pro/Qwen/Qwen2.5-VL-7B-Instruct' },
-					{ name: 'DeepSeek-VL2 (短上下文优化)', value: 'deepseek-ai/deepseek-vl2' },
-				],
-				default: 'Qwen/Qwen2.5-VL-32B-Instruct',
-				required: true,
-				description: 'The vision language model to use for image analysis',
-			},
+			...buildModelSelectionFields({
+				modeName: 'visionModelMode',
+				listName: 'visionModel',
+				idName: 'visionModelId',
+				ids: VISION_MODEL_IDS,
+				show: { resource: ['vision'], operation: ['analyze'] },
+				defaultList: 'Qwen/Qwen3-VL-32B-Instruct',
+			}),
 			{
 				displayName: 'Images',
 				name: 'images',
@@ -477,25 +456,14 @@ export class SiliconFlow implements INodeType {
 				],
 				default: 'create',
 			},
-			{
-				displayName: 'Model',
-				name: 'embeddingModel',
-				type: 'options',
-				displayOptions: { show: { resource: ['embeddings'], operation: ['create'] } },
-				options: [
-					{ name: 'BAAI/bge-large-zh-v1.5 (中文, 512 tokens)', value: 'BAAI/bge-large-zh-v1.5' },
-					{ name: 'BAAI/bge-large-en-v1.5 (英文, 512 tokens)', value: 'BAAI/bge-large-en-v1.5' },
-					{ name: 'BAAI/bge-m3 (多语言, 8192 tokens)', value: 'BAAI/bge-m3' },
-					{ name: 'Pro/BAAI/bge-m3 (多语言专业版, 8192 tokens)', value: 'Pro/BAAI/bge-m3' },
-					{ name: 'Qwen3-Embedding-8B (32768 tokens)', value: 'Qwen/Qwen3-Embedding-8B' },
-					{ name: 'Qwen3-Embedding-4B (32768 tokens)', value: 'Qwen/Qwen3-Embedding-4B' },
-					{ name: 'Qwen3-Embedding-0.6B (32768 tokens)', value: 'Qwen/Qwen3-Embedding-0.6B' },
-					{ name: 'netease-youdao/bce-embedding-base_v1 (512 tokens)', value: 'netease-youdao/bce-embedding-base_v1' },
-					{ name: 'sentence-transformers/all-MiniLM-L6-v2', value: 'sentence-transformers/all-MiniLM-L6-v2' },
-				],
-				default: 'BAAI/bge-large-zh-v1.5',
-				required: true,
-			},
+			...buildModelSelectionFields({
+				modeName: 'embeddingModelMode',
+				listName: 'embeddingModel',
+				idName: 'embeddingModelId',
+				ids: EMBEDDING_MODEL_IDS,
+				show: { resource: ['embeddings'], operation: ['create'] },
+				defaultList: 'BAAI/bge-m3',
+			}),
 			{
 				displayName: 'Input',
 				name: 'input',
@@ -544,21 +512,14 @@ export class SiliconFlow implements INodeType {
 				],
 				default: 'generate',
 			},
-			{
-				displayName: 'Model',
-				name: 'imageModel',
-				type: 'options',
-				displayOptions: { show: { resource: ['image'], operation: ['generate'] } },
-				options: [
-					{ name: 'FLUX.1-schnell', value: 'black-forest-labs/FLUX.1-schnell' },
-					{ name: 'FLUX.1-dev', value: 'black-forest-labs/FLUX.1-dev' },
-					{ name: 'Stable Diffusion 2.1', value: 'stabilityai/stable-diffusion-2-1' },
-					{ name: 'Stable Diffusion 3.5 Large', value: 'stabilityai/stable-diffusion-3.5-large' },
-					{ name: 'Kolors', value: 'Kwai-Kolors/Kolors' },
-				],
-				default: 'black-forest-labs/FLUX.1-schnell',
-				required: true,
-			},
+			...buildModelSelectionFields({
+				modeName: 'imageModelMode',
+				listName: 'imageModel',
+				idName: 'imageModelId',
+				ids: IMAGE_MODEL_IDS,
+				show: { resource: ['image'], operation: ['generate'] },
+				defaultList: 'Tongyi-MAI/Z-Image-Turbo',
+			}),
 			{
 				displayName: 'Prompt',
 				name: 'imagePrompt',
@@ -645,22 +606,14 @@ export class SiliconFlow implements INodeType {
 				],
 				default: 'create',
 			},
-			{
-				displayName: 'Model',
-				name: 'rerankModel',
-				type: 'options',
-				displayOptions: { show: { resource: ['rerank'], operation: ['create'] } },
-				options: [
-					{ name: 'Qwen3-Reranker-8B', value: 'Qwen/Qwen3-Reranker-8B' },
-					{ name: 'Qwen3-Reranker-4B', value: 'Qwen/Qwen3-Reranker-4B' },
-					{ name: 'Qwen3-Reranker-0.6B', value: 'Qwen/Qwen3-Reranker-0.6B' },
-					{ name: 'BAAI/bge-reranker-v2-m3', value: 'BAAI/bge-reranker-v2-m3' },
-					{ name: 'Pro/BAAI/bge-reranker-v2-m3 (专业版)', value: 'Pro/BAAI/bge-reranker-v2-m3' },
-					{ name: 'netease-youdao/bce-reranker-base_v1', value: 'netease-youdao/bce-reranker-base_v1' },
-				],
-				default: 'BAAI/bge-reranker-v2-m3',
-				required: true,
-			},
+			...buildModelSelectionFields({
+				modeName: 'rerankModelMode',
+				listName: 'rerankModel',
+				idName: 'rerankModelId',
+				ids: RERANK_MODEL_IDS,
+				show: { resource: ['rerank'], operation: ['create'] },
+				defaultList: 'BAAI/bge-reranker-v2-m3',
+			}),
 			{
 				displayName: 'Query',
 				name: 'query',
@@ -789,7 +742,7 @@ async function siliconflowRequest(
 // Chat Completion
 // ----------------------------------------------------------------
 async function handleChat(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = this.getNodeParameter('model', itemIndex) as string;
+	const model = resolveModelId(this, itemIndex, 'modelMode', 'model', 'modelId');
 	const prompt = this.getNodeParameter('prompt', itemIndex, '') as string;
 	const messagesParam = this.getNodeParameter('messages', itemIndex, {}) as {
 		messageValues?: Array<{ role: string; content: string }>;
@@ -864,7 +817,7 @@ async function handleChat(this: IExecuteFunctions, itemIndex: number): Promise<I
 // ----------------------------------------------------------------
 async function handleVision(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
 	const items = this.getInputData();
-	const model = this.getNodeParameter('visionModel', itemIndex) as string;
+	const model = resolveModelId(this, itemIndex, 'visionModelMode', 'visionModel', 'visionModelId');
 	const prompt = this.getNodeParameter('visionPrompt', itemIndex) as string;
 	const imagesParam = this.getNodeParameter('images', itemIndex, {}) as {
 		imageValues?: Array<Record<string, string>>;
@@ -981,7 +934,7 @@ async function handleVision(this: IExecuteFunctions, itemIndex: number): Promise
 // Embeddings
 // ----------------------------------------------------------------
 async function handleEmbeddings(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = this.getNodeParameter('embeddingModel', itemIndex) as string;
+	const model = resolveModelId(this, itemIndex, 'embeddingModelMode', 'embeddingModel', 'embeddingModelId');
 	const inputRaw = this.getNodeParameter('input', itemIndex) as unknown;
 	const additionalFields = this.getNodeParameter('embeddingAdditionalFields', itemIndex, {}) as IDataObject;
 
@@ -1023,7 +976,7 @@ async function handleEmbeddings(this: IExecuteFunctions, itemIndex: number): Pro
 // Image Generation
 // ----------------------------------------------------------------
 async function handleImage(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = this.getNodeParameter('imageModel', itemIndex) as string;
+	const model = resolveModelId(this, itemIndex, 'imageModelMode', 'imageModel', 'imageModelId');
 	const prompt = this.getNodeParameter('imagePrompt', itemIndex) as string;
 	const additionalFields = this.getNodeParameter('imageAdditionalFields', itemIndex, {}) as IDataObject;
 
@@ -1059,7 +1012,7 @@ async function handleImage(this: IExecuteFunctions, itemIndex: number): Promise<
 // Rerank
 // ----------------------------------------------------------------
 async function handleRerank(this: IExecuteFunctions, itemIndex: number): Promise<IDataObject> {
-	const model = this.getNodeParameter('rerankModel', itemIndex) as string;
+	const model = resolveModelId(this, itemIndex, 'rerankModelMode', 'rerankModel', 'rerankModelId');
 	const query = this.getNodeParameter('query', itemIndex) as string;
 	const documentsParam = this.getNodeParameter('documents', itemIndex) as string;
 	const additionalFields = this.getNodeParameter('rerankAdditionalFields', itemIndex, {}) as IDataObject;
